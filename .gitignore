@@ -1,0 +1,19 @@
+# Secrets / local state — never publish
+.env
+dns_clients_cache.json
+ruvector.db
+server.log
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.venv.broken/
+
+# OS / editor cruft
+.DS_Store
+.claude/
+.playwright-mcp/
+90%

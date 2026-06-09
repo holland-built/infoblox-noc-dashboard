@@ -1,0 +1,23 @@
+# Never ship secrets or local state into the image
+.env
+.mcp.json
+dns_clients_cache.json
+ruvector.db
+
+# Virtualenvs / caches
+.venv
+.venv.broken
+__pycache__
+*.pyc
+*.pyo
+
+# Dev cruft
+.git
+.gitignore
+.DS_Store
+90%
+test_regression.py
+Dockerfile
+.dockerignore
+run.sh
+README.docker.md

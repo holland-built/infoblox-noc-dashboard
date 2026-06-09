@@ -1,0 +1,2579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Infoblox NOC Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Crect width='28' height='28' rx='6' fill='%23252321'/%3E%3Cpath d='M7 20L14 8L21 20' stroke='%23C8C4BE' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<script>
+window.onerror = function(msg,src,line,col,err) {
+  var pre = document.createElement('pre');
+  pre.style.cssText = 'background:#131312;color:#FCA5A5;padding:24px;font-size:13px;white-space:pre-wrap';
+  pre.textContent = 'DASHBOARD ERROR\n\n' + msg + '\n\nSource: ' + src + '\nLine: ' + line + '\n\n' + ((err && err.stack) || '');
+  document.body.innerHTML = '';
+  document.body.appendChild(pre);
+};
+</script>
+<script src="react.min.js"></script>
+<script src="react-dom.min.js"></script>
+<script src="babel.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --blue-deep:#252321;--blue-mid:#181716;--blue-dark:#131312;
+  --teal:#D6D2CB;--teal-bright:#EBE8E2;
+  --surface:#1B1A19;--surface-2:#222120;--surface-3:#2E2C2A;
+  --border:rgba(255,255,255,0.08);
+  --gray-100:#ECEAE7;--gray-200:#C5C1BB;--gray-400:#8E8A84;--gray-600:#5C5954;
+  --red:#EF4444;--amber:#F59E0B;--green:#10B981;
+  --red-bg:hsl(0,72%,11%);--red-border:hsl(0,72%,28%);--red-text:hsl(0,86%,80%);
+  --amber-bg:hsl(38,85%,9%);--amber-border:hsl(38,85%,30%);--amber-text:hsl(38,92%,76%);
+  --green-bg:hsl(160,75%,7%);--green-border:hsl(160,75%,25%);--green-text:hsl(160,84%,70%);
+}
+body{background:var(--blue-dark);color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0;padding-left:224px;overflow-x:hidden}
+body.chat-open{padding-right:340px}
+@media(max-width:760px){body.chat-open{padding-right:0}}
+.sidebar{width:224px;min-width:224px;background:var(--blue-mid);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;height:100vh;z-index:100}
+.logo{padding:18px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.logo-text{font-size:13px;font-weight:700;color:var(--teal);letter-spacing:.06em;text-transform:uppercase}
+.logo-sub{font-size:10px;color:var(--gray-400);letter-spacing:.1em;margin-top:1px}
+.sidebar-nav{flex:1;padding:10px 8px;overflow-y:auto}
+.nav-sec{font-size:9px;font-weight:500;color:var(--gray-600);text-transform:uppercase;letter-spacing:.15em;padding:14px 8px 4px;margin-top:0}
+.nav-item{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--gray-200);border:none;background:none;width:100%;text-align:left;transition:all .12s}
+.nav-item:hover{background:rgba(255,255,255,.1);color:var(--teal)}
+.nav-item.active{background:rgba(255,255,255,.1);color:var(--teal);font-weight:600;border-left:2px solid var(--teal);padding-left:8px}
+.nav-icon{width:16px;text-align:center;color:var(--gray-600)}
+.sidebar-foot{padding:12px 16px;border-top:1px solid var(--border);font-size:11px;color:var(--gray-400)}
+.main{padding:0 20px 40px;flex:1;min-width:0;max-width:100%;width:100%}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:22px;padding:18px 0 14px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50;background:var(--blue-dark)}
+.page-title{font-size:20px;font-weight:700}
+.page-sub{font-size:12px;color:var(--gray-400);margin-top:2px}
+.refresh-btn{display:flex;align-items:center;gap:7px;background:var(--blue-deep);border:1px solid var(--teal);color:var(--teal);padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;transition:all .12s}
+.refresh-btn:hover{background:rgba(255,255,255,.2)}
+.spin{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;box-shadow:0 1px 3px rgba(0,0,0,.4),0 1px 2px rgba(0,0,0,.3)}
+.card-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--gray-400);margin-bottom:14px;display:flex;align-items:center;gap:7px}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--teal);flex-shrink:0}
+.g4{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
+.g2{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.g3{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+.g3-2{display:grid;grid-template-columns:minmax(200px,1fr) minmax(350px,2fr);gap:14px}
+@media(max-width:900px){.g3-2{grid-template-columns:1fr}}
+.bento{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;align-items:start}
+.bento>*{min-width:0}
+.b-wide{grid-column:span 2}
+.b-full{grid-column:1/-1}
+.card{min-width:0}
+.g2>*,.g3>*,.g4>*{min-width:0}
+@media(max-width:900px){.b-wide,.b-full{grid-column:span 1}}
+.mb14{margin-bottom:14px}
+.mb20{margin-bottom:20px}
+.mb24{margin-bottom:24px}
+/* gauges */
+.gauge-val{font-size:30px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.gauge-lbl{font-size:11px;color:var(--gray-400);margin-top:5px}
+.gauge-track{height:4px;background:var(--surface-3);border-radius:2px;margin-top:12px}
+.gauge-fill{height:100%;border-radius:2px;transition:width .8s ease}
+/* tables */
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--gray-400);padding:7px 10px;border-bottom:1px solid var(--border)}
+.tbl td{padding:8px 10px;font-size:12px;border-bottom:1px solid rgba(255,255,255,.07)}
+.tbl tr:hover td{background:rgba(255,255,255,.04)}
+.tbl tr:last-child td{border-bottom:none}
+.scroll{overflow-y:auto;overflow-x:auto;max-width:100%}
+/* ── normalize overview widget heights: cap tall cards, scroll the body, keep header pinned ── */
+.bento>.drag-card>.card{max-height:520px;overflow:auto}
+.card.fs{max-height:none!important}
+.bento>.drag-card>.card>.card-title{position:sticky;top:0;background:var(--surface);padding:2px 0 8px;margin-top:-2px;z-index:3}
+.bento>.drag-card>.card>.card-title::after{content:'';position:absolute;left:0;right:0;bottom:0;height:1px;background:var(--border)}
+/* ── tables FIT the card: fixed columns divide the width, no sideways scroll ── */
+.tbl{table-layout:fixed;width:100%}
+/* every cell = one line, ellipsis when too long; full value shown via hover tooltip (set in JS) */
+.tbl th,.tbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* the view/status/category pill truncates inside its column instead of fragmenting/overflowing */
+.tbl td .badge{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle}
+/* fixed layout means no horizontal scroll is needed; keep the header row visible while scrolling */
+.scroll{overflow-x:hidden}
+.scroll .tbl thead th{position:sticky;top:0;background:var(--surface);z-index:1}
+/* badges */
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.b-red{background:rgba(239,68,68,.15);color:#FCA5A5;border:1px solid rgba(239,68,68,.3)}
+.b-amber{background:rgba(245,158,11,.15);color:#FCD34D;border:1px solid rgba(245,158,11,.3)}
+.b-green{background:rgba(16,185,129,.15);color:#6EE7B7;border:1px solid rgba(16,185,129,.3)}
+.b-teal{background:rgba(255,255,255,.15);color:var(--teal);border:1px solid rgba(255,255,255,.3)}
+.b-gray{background:rgba(148,163,184,.12);color:var(--gray-200);border:1px solid rgba(148,163,184,.2)}
+.show-more-btn{display:block;width:100%;padding:8px;border:none;background:none;color:var(--teal);font-size:11px;font-weight:600;cursor:pointer;text-align:center;border-top:1px solid var(--border);margin-top:4px;transition:background .12s}
+.show-more-btn:hover{background:rgba(255,255,255,.04)}
+/* spinner / loading */
+.spinner{width:30px;height:30px;border:3px solid var(--surface-3);border-top-color:var(--teal);border-radius:50%;animation:spin .7s linear infinite;margin:36px auto}
+.no-data{text-align:center;padding:48px 36px;color:var(--gray-400);font-size:12px;line-height:1.6}
+/* alert banner */
+.alert{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:9px 13px;font-size:12px;color:#FCA5A5;display:flex;align-items:center;gap:7px}
+.issue-strip{display:flex;flex-direction:column;gap:6px;margin-bottom:18px}
+.issue-row{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-radius:7px;font-size:12px;cursor:pointer;transition:opacity .12s}
+.issue-row:hover{opacity:.85}
+.issue-row-crit{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.25);color:#FCA5A5}
+.issue-row-warn{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);color:#FCD34D}
+.issue-row-ok{background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.15);color:#6EE7B7}
+.issue-arrow{font-size:10px;opacity:.6}
+/* policy items */
+.pol-item{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--border)}
+.pol-item:last-child{border-bottom:none}
+/* status dots */
+.s-dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0}
+.s-online{background:var(--green)}
+.s-degraded{background:var(--amber)}
+.s-offline{background:var(--gray-400);width:5px;height:5px}
+.s-error{background:var(--red);border-radius:2px}
+.s-pending{background:var(--teal)}
+/* inline bar */
+.bar-track{width:72px;height:5px;background:var(--surface-3);border-radius:3px;display:inline-block;vertical-align:middle}
+.bar-fill{height:100%;border-radius:3px}
+/* tooltip */
+.tt{background:var(--blue-mid);border:1px solid var(--border);border-radius:6px;padding:9px 13px;font-size:12px}
+.tt-lbl{color:var(--teal);font-weight:600;margin-bottom:3px}
+/* pulse */
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+.pulse{animation:pulse 2.2s ease-in-out infinite}
+.mb14{margin-bottom:14px}.mb20{margin-bottom:20px}.mb24{margin-bottom:24px}
+/* scrollbar */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--surface-2)}
+::-webkit-scrollbar-thumb{background:var(--surface-3);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--gray-600)}
+/* chat panel */
+.chat-panel{position:fixed;top:0;right:0;bottom:0;width:340px;background:var(--blue-mid);border-left:1px solid var(--border);display:flex;flex-direction:column;z-index:200;transform:translateX(100%);transition:transform .22s cubic-bezier(.4,0,.2,1)}
+.chat-panel.open{transform:translateX(0)}
+.chat-head{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.chat-head-title{font-size:13px;font-weight:700;color:var(--teal)}
+.close-btn{background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:18px;line-height:1;padding:2px 4px}
+.close-btn:hover{color:#fff}
+.chat-msgs{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+.msg-u{align-self:flex-end;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:10px 10px 2px 10px;padding:9px 13px;font-size:12px;max-width:87%;line-height:1.5}
+.msg-a{align-self:flex-start;background:var(--surface);border:1px solid var(--border);border-radius:10px 10px 10px 2px;padding:9px 13px;font-size:12px;max-width:92%;white-space:pre-wrap;line-height:1.5}
+.chat-foot{padding:12px;border-top:1px solid var(--border);flex-shrink:0}
+.mode-row{display:flex;gap:4px;background:var(--blue-dark);border-radius:6px;padding:3px;margin-bottom:8px}
+.mode-btn{flex:1;padding:4px 0;border-radius:4px;border:none;font-size:11px;font-weight:600;cursor:pointer;letter-spacing:.04em;transition:all .15s}
+.mode-btn.on{background:var(--surface-3);color:var(--teal)}
+.mode-btn:not(.on){background:none;color:var(--gray-400)}
+.chat-row{display:flex;gap:6px;align-items:flex-end}
+.chat-in{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:7px;color:#fff;font-size:12px;padding:8px 11px;resize:none;font-family:inherit;outline:none;max-height:90px;line-height:1.4}
+.chat-in:focus{border-color:rgba(255,255,255,.45)}
+.send-b{background:var(--teal);border:none;border-radius:7px;color:var(--blue-dark);font-size:16px;font-weight:900;padding:7px 11px;cursor:pointer;transition:all .15s;line-height:1;flex-shrink:0}
+.send-b:hover{background:var(--teal-bright)}
+.send-b:disabled{opacity:.35;cursor:default}
+.chat-toggle-btn{display:flex;align-items:center;gap:7px;background:var(--blue-deep);border:1px solid var(--border);color:var(--gray-200);padding:7px 13px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;margin-left:8px;transition:all .12s}
+.chat-toggle-btn:hover,.chat-toggle-btn.on{border-color:var(--teal);color:var(--teal);background:rgba(255,255,255,.08)}
+.filter-banner{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:7px 13px;font-size:11px;color:var(--teal);display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.filter-clear{background:none;border:none;color:#FCA5A5;cursor:pointer;font-size:11px;font-weight:700;padding:0}
+.thinking{display:flex;gap:5px;align-items:center;padding:4px 2px}
+.t-dot{width:6px;height:6px;border-radius:50%;background:var(--teal);animation:tbounce .9s ease-in-out infinite}
+.t-dot:nth-child(2){animation-delay:.15s}.t-dot:nth-child(3){animation-delay:.3s}
+@keyframes tbounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}
+.suggestion-chips{display:flex;flex-direction:column;gap:4px;margin-top:6px;max-width:92%}
+.suggestion-chip{background:none;border:1px solid var(--teal);border-radius:16px;color:var(--teal);font-size:10px;font-weight:600;padding:4px 10px;cursor:pointer;text-align:left;line-height:1.4;transition:all .12s;white-space:normal}
+.suggestion-chip:hover{background:rgba(214,210,203,.12);color:var(--teal-bright);border-color:var(--teal-bright)}
+/* ── drill-down panels ── */
+.drill-panel{margin-top:14px;border-top:1px solid var(--border);padding-top:12px;animation:fadeIn .15s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.drill-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.drill-title{font-size:11px;font-weight:700;color:var(--teal);text-transform:uppercase;letter-spacing:.08em}
+.drill-close{background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:16px;padding:0 2px;line-height:1}
+.drill-close:hover{color:#fff}
+.drill-see-all{font-size:10px;color:var(--teal);cursor:pointer;background:none;border:none;padding:0;text-decoration:underline;text-underline-offset:2px}
+/* tighter rows inside drill-down panels — more data in the same height */
+.drill-panel .tbl td{padding:4px 8px;font-size:11px}
+.drill-panel .tbl th{padding:4px 8px}
+/* account switcher (sidebar footer) */
+.acct-name{font-size:10px;color:var(--gray-400);margin-top:6px}
+.acct-switch-btn{background:none;border:1px solid var(--border);border-radius:4px;color:var(--teal);font-size:10px;font-weight:600;padding:2px 7px;cursor:pointer;margin-top:5px;transition:all .12s}
+.acct-switch-btn:hover{background:rgba(255,255,255,.08);border-color:var(--teal)}
+.acct-menu{position:absolute;bottom:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px;margin-bottom:6px;z-index:300;box-shadow:0 4px 12px rgba(0,0,0,.5)}
+.acct-menu-item{display:block;width:100%;text-align:left;background:none;border:none;color:var(--gray-200);font-size:11px;padding:6px 10px;border-radius:4px;cursor:pointer;transition:all .12s}
+.acct-menu-item:hover{background:rgba(255,255,255,.08);color:var(--teal)}
+.acct-menu-item.active{color:var(--teal);font-weight:700}
+.acct-overlay{position:fixed;inset:0;z-index:299}
+.acct-search{width:100%;background:var(--blue-dark);border:1px solid var(--border);border-radius:4px;color:#fff;font-size:11px;padding:5px 8px;margin-bottom:4px;outline:none;font-family:inherit}
+.acct-search:focus{border-color:var(--teal)}
+.acct-menu-item{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* ── new features ── */
+.auto-refresh-sel{background:var(--surface);border:1px solid var(--border);color:var(--gray-200);font-size:10px;border-radius:5px;padding:3px 6px;cursor:pointer;outline:none;margin-left:8px}
+.refresh-countdown{font-size:11px;color:var(--gray-600);margin-left:4px}
+.chip-bar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.chip{padding:3px 10px;border-radius:20px;border:1px solid var(--border);background:none;color:var(--gray-400);font-size:10px;font-weight:600;cursor:pointer;transition:all .12s}
+.chip.on{background:var(--surface-3);color:var(--teal);border-color:var(--teal)}
+.shortcut-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:500;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.shortcut-box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:24px 28px;min-width:280px;cursor:default}
+.kbd{display:inline-block;background:var(--surface-3);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:10px;font-family:monospace;color:var(--teal);margin-right:8px}
+.copy-btn{background:none;border:none;color:var(--gray-600);cursor:pointer;font-size:10px;padding:0 3px;opacity:0;transition:opacity .15s;line-height:1}
+tr:hover .copy-btn{opacity:1}
+.copy-btn.done{color:var(--green)}
+.badge-pill{display:inline-block;background:rgba(239,68,68,.2);color:#FCA5A5;border-radius:10px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:4px;vertical-align:middle}
+.badge-pill-amber{background:rgba(245,158,11,.2);color:#FCD34D}
+.row-limit-bar{display:flex;align-items:center;gap:8px;margin-bottom:10px;justify-content:flex-end}
+.row-limit-btn{padding:2px 9px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--gray-400);font-size:10px;cursor:pointer;font-weight:600;transition:all .12s}
+.row-limit-btn.on{background:var(--surface-3);color:var(--teal);border-color:var(--teal)}
+.drag-card{transition:opacity .15s}
+.drag-card.dragging{opacity:.35}
+.drag-over{outline:2px dashed rgba(214,210,203,.45);outline-offset:4px;border-radius:10px;background:rgba(214,210,203,.04)}
+.drag-handle{cursor:grab;color:var(--gray-600);font-size:13px;line-height:1;padding:0 4px;user-select:none;flex-shrink:0;transition:color .12s}
+.drag-handle:hover{color:var(--teal)}
+.drag-handle:active{cursor:grabbing}
+.viz-sel{background:var(--surface);border:1px solid var(--border);color:var(--gray-200);font-size:10px;border-radius:5px;padding:2px 5px;cursor:pointer;outline:none;flex-shrink:0}
+.viz-sel:hover{border-color:var(--teal);color:var(--teal)}
+.collapse-btn{margin-left:auto;background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:14px;padding:0 3px;line-height:1;flex-shrink:0}
+.collapse-btn:hover{color:#fff}
+.card.fs{position:fixed;inset:0;z-index:300;border-radius:0;overflow-y:auto;padding:24px 32px}
+.fs-btn{background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:12px;padding:0 3px;flex-shrink:0}
+.fs-btn:hover{color:#fff}
+.global-search{background:var(--surface);border:1px solid var(--border);border-radius:6px;color:#fff;font-size:12px;padding:6px 11px;outline:none;width:190px;transition:border-color .12s}
+.global-search:focus{border-color:rgba(255,255,255,.4)}
+.global-search::placeholder{color:var(--gray-600)}
+.entity-card{background:var(--surface-2);border:1px solid var(--border);border-radius:7px;padding:11px 14px;margin-bottom:8px}
+.lookup-input-row{display:flex;gap:8px;margin-bottom:18px}
+.lookup-in{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:#fff;font-size:12px;padding:8px 12px;outline:none}
+.lookup-in:focus{border-color:rgba(255,255,255,.4)}
+.lookup-btn{background:var(--teal);border:none;border-radius:6px;color:var(--blue-dark);font-size:12px;font-weight:700;padding:8px 16px;cursor:pointer}
+.lookup-btn:hover{background:var(--teal-bright)}
+.block-btn{background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.35);border-radius:5px;color:#FCA5A5;font-size:10px;font-weight:700;padding:3px 9px;cursor:pointer;margin-top:6px}
+.block-btn:hover{background:rgba(239,68,68,.3)}
+.sev-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+.sev-card{border-radius:8px;padding:14px;text-align:center;border:1px solid}
+.sort-th{cursor:pointer;user-select:none;white-space:nowrap}
+.sort-th:hover{color:var(--teal-bright)}
+.sort-ind{margin-left:4px;opacity:.5;font-size:9px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="env,react">
+const {useState,useEffect,useCallback,useRef} = React;
+
+/* ─── MOCK DATA ─────────────────────────────────────────────────────────────
+   Replace generateMockData() bodies with live MCP calls:
+     mcp.ipam.subnet.list()        → subnets
+     mcp.dhcp.lease.list()         → leases
+     mcp.dns.view.list()           → dnsViews
+     mcp.dns.auth_zone.list()      → authZones
+     mcp.infrastructure.hosts.list() → hosts
+     mcp.atcfw.security_policies.list() → secPolicies
+     mcp.atcfw.threat_feeds.list() → threatFeeds
+     mcp.audit.logs.list({limit:100,sort:'-created_at'}) → auditLogs
+   ─────────────────────────────────────────────────────────────────────────*/
+
+const MOCK = (() => {
+  const subnets = [
+    {id:'s1',name:'HQ-Corporate',    addr:'10.1.0.0', cidr:24, total:254,  used:241, site:'HQ'},
+    {id:'s2',name:'Branch-Dallas',   addr:'10.2.0.0', cidr:24, total:254,  used:228, site:'Dallas'},
+    {id:'s3',name:'DMZ-External',    addr:'192.168.1.0',cidr:25,total:126, used:115, site:'HQ'},
+    {id:'s4',name:'IoT-Network',     addr:'10.5.0.0', cidr:22, total:1022, used:945, site:'HQ'},
+    {id:'s5',name:'Branch-Chicago',  addr:'10.3.0.0', cidr:24, total:254,  used:231, site:'Chicago'},
+    {id:'s6',name:'Dev-Lab',         addr:'172.16.10.0',cidr:24,total:254, used:89,  site:'HQ'},
+    {id:'s7',name:'VPN-Pool',        addr:'10.10.0.0',cidr:22, total:1022, used:312, site:'HQ'},
+    {id:'s8',name:'Guest-WiFi',      addr:'10.20.0.0',cidr:23, total:510,  used:487, site:'HQ'},
+    {id:'s9',name:'Branch-NYC',      addr:'10.4.0.0', cidr:24, total:254,  used:198, site:'NYC'},
+    {id:'s10',name:'Servers-Prod',   addr:'172.20.0.0',cidr:24,total:254,  used:143, site:'HQ'},
+    {id:'s11',name:'OT-Control',     addr:'192.168.10.0',cidr:24,total:254,used:242, site:'Plant'},
+    {id:'s12',name:'Branch-Miami',   addr:'10.6.0.0', cidr:24, total:254,  used:167, site:'Miami'},
+    {id:'s13',name:'CCTV-Network',   addr:'10.50.0.0',cidr:22, total:1022, used:391, site:'HQ'},
+    {id:'s14',name:'Voice-VLAN',     addr:'10.30.0.0',cidr:23, total:510,  used:322, site:'HQ'},
+    {id:'s15',name:'Mgmt-OOB',       addr:'172.31.0.0',cidr:24,total:254,  used:58,  site:'HQ'},
+    {id:'s16',name:'Azure-VPN',      addr:'10.100.0.0',cidr:22,total:1022, used:44,  site:'Cloud'},
+    {id:'s17',name:'Branch-Austin',  addr:'10.7.0.0', cidr:24, total:254,  used:188, site:'Austin'},
+    {id:'s18',name:'DR-Site',        addr:'10.200.0.0',cidr:23,total:510,  used:21,  site:'DR'},
+    {id:'s19',name:'Lab-QA',         addr:'172.16.20.0',cidr:24,total:254, used:112, site:'HQ'},
+    {id:'s20',name:'Wireless-Corp',  addr:'10.40.0.0',cidr:22, total:1022, used:876, site:'HQ'},
+  ].map(s=>({...s, util:Math.round(s.used/s.total*100)}));
+
+  const leases = [];
+  subnets.forEach(s=>{
+    const [a,b,c] = s.addr.split('.');
+    const n = Math.min(s.used,40);
+    for(let i=0;i<n;i++) leases.push({
+      subnet_id:s.id, subnet:s.name,
+      addr:`${a}.${b}.${c}.${i+1}`,
+      state: i%18===0?'expired':'active',
+      host:`host-${s.name.toLowerCase().replace(/[^a-z0-9]/g,'-')}-${i+1}`
+    });
+  });
+
+  const dnsViews=[
+    {id:'v1',name:'default',comment:'Default view'},
+    {id:'v2',name:'internal',comment:'Internal split-DNS'},
+    {id:'v3',name:'external',comment:'External/DMZ'},
+  ];
+
+  const zones=[
+    {id:'z1', fqdn:'corp.example.com',        view:'internal', ttl:300,   neg_ttl:60,   records:412},
+    {id:'z2', fqdn:'example.com',             view:'external', ttl:3600,  neg_ttl:900,  records:88},
+    {id:'z3', fqdn:'mail.example.com',        view:'external', ttl:30,    neg_ttl:30,   records:12},
+    {id:'z4', fqdn:'vpn.corp.example.com',    view:'internal', ttl:300,   neg_ttl:3601, records:45},
+    {id:'z5', fqdn:'10.in-addr.arpa',         view:'internal', ttl:3600,  neg_ttl:3600, records:1822},
+    {id:'z6', fqdn:'dev.example.com',         view:'internal', ttl:60,    neg_ttl:60,   records:203},
+    {id:'z7', fqdn:'iot.example.com',         view:'internal', ttl:172800,neg_ttl:86400,records:987},
+    {id:'z8', fqdn:'staging.example.com',     view:'internal', ttl:300,   neg_ttl:300,  records:156},
+    {id:'z9', fqdn:'partner.example.com',     view:'external', ttl:7200,  neg_ttl:3600, records:34},
+    {id:'z10',fqdn:'api.example.com',         view:'external', ttl:30,    neg_ttl:900,  records:67},
+    {id:'z11',fqdn:'legacy.corp.example.com', view:'internal', ttl:86401, neg_ttl:7200, records:0},
+    {id:'z12',fqdn:'shop.example.com',        view:'external', ttl:3600,  neg_ttl:900,  records:29},
+    {id:'z13',fqdn:'hr.corp.example.com',     view:'internal', ttl:300,   neg_ttl:60,   records:118},
+    {id:'z14',fqdn:'test.example.com',        view:'internal', ttl:60,    neg_ttl:60,   records:0},
+    {id:'z15',fqdn:'168.192.in-addr.arpa',    view:'internal', ttl:3600,  neg_ttl:3600, records:234},
+  ].map(z=>{
+    const issues=[];
+    if(z.ttl<60) issues.push('TTL Too Low');
+    if(z.ttl>86400) issues.push('TTL Too High');
+    if(z.neg_ttl>3600) issues.push('High Neg-TTL');
+    return {...z,issues,anomaly:issues.length>0};
+  });
+
+  const statusPool=['online','online','online','online','online','degraded','degraded','offline','error','pending'];
+  const hosts=Array.from({length:52},(_,i)=>({
+    id:`h${i}`,
+    name: i<10?`router-core-${i+1}`:i<20?`switch-access-${i-9}`:i<35?`server-app-${i-19}`:i<45?`fw-edge-${i-34}`:`iot-device-${i-44}`,
+    ip:`10.${Math.floor(i/26)+1}.${Math.floor(i/10)%10}.${(i%25)+1}`,
+    status:statusPool[i%statusPool.length],
+    type:i<10?'Router':i<20?'Switch':i<35?'Server':i<45?'Firewall':'IoT',
+  }));
+
+  const secPolicies=[
+    {id:'p1',name:'Block-Malware-Default',  action:'block',    rules:24,created:'2025-01-15',active:true},
+    {id:'p2',name:'Allow-Trusted-IPs',      action:'allow',    rules:8, created:'2025-02-01',active:true},
+    {id:'p3',name:'DNS-Exfil-Prevention',   action:'block',    rules:15,created:'2025-03-10',active:true},
+    {id:'p4',name:'Threat-Intel-Auto',      action:'block',    rules:42,created:'2025-01-20',active:true},
+    {id:'p5',name:'Guest-WiFi-Restrict',    action:'redirect', rules:6, created:'2025-04-05',active:true},
+    {id:'p6',name:'OT-Network-Isolation',   action:'block',    rules:31,created:'2025-02-28',active:true},
+    {id:'p7',name:'C2-Detection',           action:'block',    rules:19,created:'2025-05-01',active:true},
+    {id:'p8',name:'Dev-Looser-Policy',      action:'monitor',  rules:4, created:'2025-04-20',active:false},
+  ];
+
+  const feeds=[
+    {id:'f1', name:'Infoblox-Malware-DGA',   level:'critical',conf:'high',  cat:'DGA',        entries:42891, active:true},
+    {id:'f2', name:'Infoblox-C2-Beacon',     level:'critical',conf:'high',  cat:'C2',         entries:8234,  active:true},
+    {id:'f3', name:'IID-Active-Threats',     level:'high',    conf:'high',  cat:'Mixed',      entries:156724,active:true},
+    {id:'f4', name:'Infoblox-Ransomware',    level:'critical',conf:'high',  cat:'Ransomware', entries:12455, active:true},
+    {id:'f5', name:'SURBL-Phishing',         level:'high',    conf:'medium',cat:'Phishing',   entries:89230, active:true},
+    {id:'f6', name:'Emerging-Threats-C2',    level:'high',    conf:'medium',cat:'C2',         entries:23100, active:true},
+    {id:'f7', name:'AlienVault-OTX',         level:'medium',  conf:'medium',cat:'Mixed',      entries:512000,active:true},
+    {id:'f8', name:'CINS-Active',            level:'medium',  conf:'low',   cat:'Scanners',   entries:78430, active:true},
+    {id:'f9', name:'Abuse.ch-URLhaus',       level:'high',    conf:'high',  cat:'URLs',       entries:45672, active:true},
+    {id:'f10',name:'Infoblox-Lookalike',     level:'medium',  conf:'high',  cat:'Lookalike',  entries:3412,  active:true},
+    {id:'f11',name:'Bambenek-C2',            level:'high',    conf:'high',  cat:'C2',         entries:2341,  active:true},
+    {id:'f12',name:'DShield-Suspicious',     level:'low',     conf:'low',   cat:'Scanners',   entries:192340,active:false},
+    {id:'f13',name:'Infoblox-Exploit-Kit',   level:'critical',conf:'high',  cat:'Exploit',    entries:5123,  active:true},
+    {id:'f14',name:'SpamHaus-DRO',           level:'medium',  conf:'medium',cat:'Spam',       entries:345678,active:true},
+    {id:'f15',name:'Infoblox-Zero-Day',      level:'critical',conf:'medium',cat:'Zero-Day',   entries:187,   active:true},
+  ];
+
+  const actions=['CREATE','UPDATE','DELETE','READ','LOGIN','LOGOUT','EXPORT','IMPORT','ENABLE','DISABLE'];
+  const users=['admin@corp.example.com','jsmith@corp','automation-svc','mjones@corp','api-user','ldavis@corp'];
+  const resources=['subnet','dhcp_lease','dns_zone','host','security_policy','threat_feed','auth_zone','network_view'];
+  const now=Date.now();
+  const auditLogs=Array.from({length:100},(_,i)=>({
+    id:`a${i}`,
+    ts:new Date(now-i*7.5*60000).toISOString(),
+    user:users[i%users.length],
+    action:actions[i%actions.length],
+    resource:resources[i%resources.length],
+    result: i%5===3?'failure':'success',
+  }));
+
+  return {subnets,leases,dnsViews,zones,hosts,secPolicies,feeds,auditLogs};
+})();
+
+const LS = {
+  get: (k, def) => { try { const v=localStorage.getItem(k); return v!=null?JSON.parse(v):def; } catch{return def;} },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) { console.warn('localStorage write failed:', k, e); } }
+};
+
+/* ─── HELPERS ───────────────────────────────────────────────────────────────*/
+
+/* Returns leases whose IP falls inside subnet addr/cidr */
+function leasesInSubnet(leases, subnet) {
+  const parts = (subnet.addr||'').split('.').map(Number);
+  const cidr = subnet.cidr || 24;
+  // Build prefix to match: /8→1 octet, /16→2, /24→3, /32→4
+  const octets = cidr <= 8 ? 1 : cidr <= 16 ? 2 : cidr <= 24 ? 3 : 4;
+  const prefix = parts.slice(0, octets).join('.');
+  return leases.filter(l => (l.addr || '').startsWith(prefix + '.') ||
+                            (octets === 4 && l.addr === subnet.addr));
+}
+
+function downloadCSV(filename, rows, columns) {
+  const header = columns.map(c=>JSON.stringify(c.label||c)).join(',');
+  const body = rows.map(r=>columns.map(c=>JSON.stringify(r[c.key]??'')).join(',')).join('\n');
+  const blob = new Blob([header+'\n'+body], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function timeAgo(iso) {
+  const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if(sec < 60)  return 'just now';
+  if(sec < 3600) return Math.floor(sec/60)+'m ago';
+  if(sec < 86400) return Math.floor(sec/3600)+'h ago';
+  return Math.floor(sec/86400)+'d ago';
+}
+
+function useSortable(data, defaultKey='', defaultDir='asc') {
+  const [sortKey, setSortKey] = React.useState(defaultKey);
+  const [sortDir, setSortDir] = React.useState(defaultDir);
+  const toggle = (key) => {
+    if(sortKey===key) setSortDir(d=>d==='asc'?'desc':'asc');
+    else { setSortKey(key); setSortDir('asc'); }
+  };
+  const sorted = [...data].sort((a,b)=>{
+    const av=a[sortKey], bv=b[sortKey];
+    if(av==null&&bv==null) return 0;
+    if(av==null) return 1;
+    if(bv==null) return -1;
+    const cmp = typeof av==='number'&&typeof bv==='number' ? av-bv : String(av).localeCompare(String(bv));
+    return sortDir==='asc'?cmp:-cmp;
+  });
+  const Th = ({col, label}) => (
+    <th className="sort-th" onClick={()=>toggle(col)}>
+      {label}<span className="sort-ind">{sortKey===col?(sortDir==='asc'?'▲':'▼'):'⇅'}</span>
+    </th>
+  );
+  return {sorted, Th, sortKey, sortDir};
+}
+
+function copyToClip(text, setDone) {
+  navigator.clipboard.writeText(text).then(()=>{
+    if(setDone){ setDone(true); setTimeout(()=>setDone(false),1500); }
+  }).catch(()=>{});
+}
+
+const fmtTs = iso => {
+  const d=new Date(iso);
+  return d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+
+    ' '+d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+};
+
+const levelOrder = {critical:0,high:1,medium:2,low:3};
+const levelBadge = l => ({critical:'b-red',high:'b-amber',medium:'b-teal',low:'b-gray'})[l]||'b-gray';
+const levelColor = l => ({critical:'#FCA5A5',high:'#FCD34D',medium:'#C8C4BE',low:'#94A3B8'})[l]||'#94A3B8';
+const actionColor = a => ({CREATE:'#C8C4BE',UPDATE:'#F59E0B',DELETE:'#EF4444',READ:'#94A3B8',
+  LOGIN:'#10B981',LOGOUT:'#94A3B8',EXPORT:'#F59E0B',IMPORT:'#C8C4BE',ENABLE:'#10B981',DISABLE:'#EF4444'})[a]||'#CBD5E1';
+const utilColor = p => p>=90?'#EF4444':p>=75?'#F59E0B':'#10B981';
+
+function mockMCPQuery(q, data) {
+  const ql = q.toLowerCase();
+  const {subnets,leases,zones,hosts,secPolicies,feeds,auditLogs,dnsViews} = data;
+
+  /* ── intent helpers ── */
+  const isTop    = ql.match(/top|most|highest|busiest|rank|who is|who's |who are|which.*(most|high|busy)|biggest|largest|most active/);
+  const isDNSctx = ql.match(/dns|resolv|lookup|quer|nxdomain|send|traffic|domain|name.server/);
+  const isDHCPctx= ql.match(/dhcp|lease|ip.usage|address.usage/);
+
+  /* ── compound / analytic intents first ── */
+  if(isTop) {
+    if(isDNSctx)
+      return 'Fetching top DNS clients from live data… (use the DNS Analytics tab for the full chart, or ask in the Query panel with the server running)';
+    if(isDHCPctx) {
+      const top=[...subnets].sort((a,b)=>b.used-a.used).slice(0,5);
+      return `Top 5 subnets by active DHCP usage:\n${top.map(s=>`• ${s.name} (${s.addr}/${s.cidr}): ${s.used}/${s.total} IPs (${s.util}%)`).join('\n')}\n\nNote: per-client request counts require DHCP log access, not in API data.`;
+    }
+    if(ql.match(/subnet|network/)) {
+      return `Top subnets by utilization:\n${[...subnets].sort((a,b)=>b.util-a.util).slice(0,5).map((s,i)=>`${i+1}. ${s.name}: ${s.util}% (${s.used}/${s.total})`).join('\n')}`;
+    }
+    if(ql.match(/threat|feed|malware/)) {
+      const top=[...feeds].filter(f=>f.active).sort((a,b)=>b.entries-a.entries).slice(0,5);
+      return `Top feeds by entry count:\n${top.map(f=>`• ${f.name}: ${f.entries.toLocaleString()} (${f.level})`).join('\n')}`;
+    }
+    if(ql.match(/user|admin|audit/)) {
+      const cnt=auditLogs.reduce((a,l)=>{a[l.user]=(a[l.user]||0)+1;return a},{});
+      return `Most active audit users:\n${Object.entries(cnt).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([u,n])=>`• ${u}: ${n} events`).join('\n')}`;
+    }
+  }
+
+  /* ── per-category intents ── */
+  if(ql.match(/subnet|ipam|address.space/) && !isDNSctx && !isDHCPctx) {
+    if(ql.match(/critical|full|90/)) {
+      const c=subnets.filter(s=>s.util>=90);
+      return c.length?`${c.length} critical subnet${c.length>1?'s':''} (≥90%):\n${c.map(s=>`• ${s.name} — ${s.addr}/${s.cidr}: ${s.util}%`).join('\n')}`:'No critical subnets.';
+    }
+    if(ql.match(/warn|75|80/)) {
+      const w=subnets.filter(s=>s.util>=75&&s.util<90);
+      return `${w.length} subnets at 75–89%:\n${w.map(s=>`• ${s.name}: ${s.util}%`).join('\n')}`;
+    }
+    const avg=Math.round(subnets.reduce((a,s)=>a+s.util,0)/subnets.length);
+    return `${subnets.length} subnets. Avg: ${avg}%.\n• Critical (≥90%): ${subnets.filter(s=>s.util>=90).length}\n• Warning (75–89%): ${subnets.filter(s=>s.util>=75&&s.util<90).length}\n• Healthy (<75%): ${subnets.filter(s=>s.util<75).length}`;
+  }
+
+  if(ql.match(/\bhost|hosts|device|devices|router|server|servers|switch|firewall|appliance|machine\b/)) {
+    if(ql.match(/offline|down/)) { const b=hosts.filter(h=>h.status==='offline'); return b.length?`${b.length} offline:\n${b.map(h=>`• ${h.name} (${h.ip})`).join('\n')}`:'No offline hosts.'; }
+    if(ql.match(/error/))  { const e=hosts.filter(h=>h.status==='error');   return e.length?`${e.length} in error:\n${e.map(h=>`• ${h.name} (${h.ip})`).join('\n')}`:'No hosts in error.'; }
+    if(ql.match(/degrad/)) { const d=hosts.filter(h=>h.status==='degraded'); return `${d.length} degraded:\n${d.map(h=>`• ${h.name} (${h.ip})`).join('\n')}`; }
+    const cnt=hosts.reduce((a,h)=>{a[h.status]=(a[h.status]||0)+1;return a},{});
+    return `${hosts.length} hosts:\n${Object.entries(cnt).sort((a,b)=>b[1]-a[1]).map(([s,n])=>`• ${s}: ${n}`).join('\n')}`;
+  }
+
+  if(ql.match(/\bdns\b|dns |zone|ttl|nxdomain|name.server|resolv/) && !isTop) {
+    if(ql.match(/anomal|issue|problem|bad/)) { const b=zones.filter(z=>z.anomaly); return b.length?`${b.length} zone${b.length>1?'s':''} with TTL issues:\n${b.map(z=>`• ${z.fqdn} — ${z.issues.join(', ')}`).join('\n')}`:'No TTL anomalies.'; }
+    if(ql.match(/empty|no record|zero/))    { const e=zones.filter(z=>z.records===0); return e.length?`${e.length} empty zone${e.length>1?'s':''}:\n${e.map(z=>`• ${z.fqdn} (${z.view})`).join('\n')}`:'All zones have records.'; }
+    return `${zones.length} auth zones, ${dnsViews.length} views. TTL issues: ${zones.filter(z=>z.anomaly).length}. Empty: ${zones.filter(z=>z.records===0).length}.`;
+  }
+
+  if(ql.match(/threat|feed|malware|c2|ransomware|phish|exploit|dga/)) {
+    if(ql.match(/critical/)) { const c=feeds.filter(f=>f.level==='critical'&&f.active); return `${c.length} active critical feeds:\n${c.map(f=>`• ${f.name} (${f.entries.toLocaleString()})`).join('\n')}`; }
+    const a=feeds.filter(f=>f.active); const tot=a.reduce((x,f)=>x+f.entries,0);
+    return `${a.length}/${feeds.length} feeds active, ${tot.toLocaleString()} entries.\n• Critical: ${feeds.filter(f=>f.level==='critical').length}\n• High: ${feeds.filter(f=>f.level==='high').length}\n• Medium: ${feeds.filter(f=>f.level==='medium').length}`;
+  }
+
+  if(ql.match(/polic|security rule/)) {
+    const a=secPolicies.filter(p=>p.active);
+    return `${a.length} active policies, ${secPolicies.reduce((x,p)=>x+p.rules,0)} total rules:\n${secPolicies.map(p=>`• ${p.name} — ${p.action}${p.active?'':' (off)'}`).join('\n')}`;
+  }
+
+  if(ql.match(/audit|log|event|recent|change|who.changed|who.did|activity|history/)) {
+    const f=auditLogs.filter(l=>l.result==='failure');
+    return `${auditLogs.length} events. Failures: ${f.length}.\nRecent:\n${auditLogs.slice(0,5).map(l=>`• ${l.user} — ${l.action} ${l.resource}`).join('\n')}`;
+  }
+
+  if(ql.match(/dhcp|lease/)) {
+    return `${leases.length} leases.\n• Active: ${leases.filter(l=>l.state==='active').length}\n• Expired: ${leases.filter(l=>l.state==='expired').length}`;
+  }
+
+  if(ql.match(/summar|overview|status|health|how is|how.s the|all good|whats up|what.s up/)) {
+    return `Network summary:\n• Subnets: ${subnets.length} (${subnets.filter(s=>s.util>=90).length} critical)\n• Hosts: ${hosts.length} (${hosts.filter(h=>h.status==='online').length} online, ${hosts.filter(h=>['offline','error'].includes(h.status)).length} down/error)\n• DNS: ${zones.length} zones (${zones.filter(z=>z.anomaly).length} TTL issues)\n• Feeds: ${feeds.filter(f=>f.active).length} active\n• Leases: ${leases.filter(l=>l.state==='active').length} active`;
+  }
+
+  return 'I can answer questions like:\n• "who is sending the most DNS queries"\n• "show me offline hosts"\n• "critical subnets"\n• "DNS TTL anomalies"\n• "active threat feeds"\n• "summary" or "how is everything"\n• "who changed things recently"\n\nOr go to the Search tab to find any IP, hostname, or subnet.';
+}
+
+/* ─── SUBCOMPONENTS ─────────────────────────────────────────────────────────*/
+
+function GaugeCard({value,max,label,sub,color,icon,onClick}) {
+  const pct = max>0 ? Math.min(value/max*100,100):0;
+  return (
+    <div className="card" style={{cursor:onClick?'pointer':'default'}} onClick={onClick}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+        <span style={{fontSize:18,opacity:.65}}>{icon}</span>
+        <span style={{fontSize:9,color:'var(--gray-400)',textTransform:'uppercase',letterSpacing:'.1em'}}>{label}</span>
+      </div>
+      <div className="gauge-val" style={{color}}>{value}</div>
+      <div className="gauge-lbl">{sub}</div>
+      <div className="gauge-track" style={{marginTop:10}}>
+        <div className="gauge-fill" style={{width:`${pct}%`,background:color}}/>
+      </div>
+    </div>
+  );
+}
+
+/* SVG donut — no external deps */
+function Donut({hosts,filter,onSlice}) {
+  const counts = hosts.reduce((a,h)=>{a[h.status]=(a[h.status]||0)+1;return a},{});
+  const slices=[
+    {name:'Online',  val:counts.online||0,   color:'#10B981'},
+    {name:'Degraded',val:counts.degraded||0, color:'#F59E0B'},
+    {name:'Offline', val:counts.offline||0,  color:'#64748B'},
+    {name:'Error',   val:counts.error||0,    color:'#EF4444'},
+    {name:'Pending', val:counts.pending||0,  color:'#C8C4BE'},
+  ].filter(d=>d.val>0);
+
+  const [tip,setTip]=useState(null);
+  const total=slices.reduce((a,s)=>a+s.val,0);
+  const cx=100,cy=100,ro=86,ri=52,gap=0.03;
+
+  const arcs=[];
+  let angle=-Math.PI/2;
+  slices.forEach((s,i)=>{
+    const sweep=(s.val/total)*(2*Math.PI)-gap;
+    const a1=angle+gap/2, a2=angle+gap/2+sweep;
+    const lx=cx+ro*Math.cos(a1), ly=cy+ro*Math.sin(a1);
+    const ex=cx+ro*Math.cos(a2), ey=cy+ro*Math.sin(a2);
+    const ilx=cx+ri*Math.cos(a2),ily=cy+ri*Math.sin(a2);
+    const iex=cx+ri*Math.cos(a1),iey=cy+ri*Math.sin(a1);
+    const large=sweep>Math.PI?1:0;
+    const d=`M${lx},${ly} A${ro},${ro} 0 ${large} 1 ${ex},${ey} L${ilx},${ily} A${ri},${ri} 0 ${large} 0 ${iex},${iey} Z`;
+    const mid=(a1+a2)/2;
+    const pct=Math.round(s.val/total*100);
+    const lrx=cx+(ro+ri)/2*Math.cos(mid), lry=cy+(ro+ri)/2*Math.sin(mid);
+    arcs.push({...s,d,mid,pct,lrx,lry,key:i});
+    angle+=sweep+gap;
+  });
+
+  return (
+    <>
+      <div style={{position:'relative'}}>
+        <svg viewBox="0 0 200 200" width="200" height="200" style={{display:'block',margin:'0 auto'}}>
+          {arcs.map(a=>(
+            <path key={a.key} d={a.d} fill={a.color}
+              opacity={filter&&filter!==a.name.toLowerCase()?0.35:1}
+              stroke={filter===a.name.toLowerCase()?'#fff':'none'} strokeWidth={1.5}
+              style={{cursor:'pointer',transition:'opacity .2s'}}
+              onClick={()=>onSlice(a.name.toLowerCase())}
+              onMouseEnter={()=>setTip(a)} onMouseLeave={()=>setTip(null)}/>
+          ))}
+          {arcs.map(a=>a.pct>=7&&(
+            <text key={a.key} x={a.lrx} y={a.lry} fill="#fff" textAnchor="middle"
+              dominantBaseline="central" fontSize={9} fontWeight={700} style={{pointerEvents:'none'}}>
+              {a.pct}%
+            </text>
+          ))}
+          {tip&&(
+            <text x={cx} y={cy-6} fill={tip.color} textAnchor="middle" fontSize={11} fontWeight={700}>{tip.name}</text>
+          )}
+          {tip&&(
+            <text x={cx} y={cy+10} fill="#fff" textAnchor="middle" fontSize={14} fontWeight={800}>{tip.val}</text>
+          )}
+          {!tip&&(
+            <text x={cx} y={cy+4} fill="var(--gray-400)" textAnchor="middle" fontSize={11}>{total} hosts</text>
+          )}
+        </svg>
+      </div>
+      <div style={{display:'flex',flexWrap:'wrap',gap:'6px 14px',justifyContent:'center',marginTop:4}}>
+        {slices.map((d,i)=>(
+          <div key={i} style={{display:'flex',alignItems:'center',gap:5,fontSize:11,cursor:'pointer'}}
+            onClick={()=>onSlice(d.name.toLowerCase())}>
+            <div style={{width:7,height:7,borderRadius:'50%',background:d.color,opacity:filter&&filter!==d.name.toLowerCase()?0.4:1}}/>
+            <span style={{color:filter===d.name.toLowerCase()?d.color:'var(--gray-200)'}}>{d.name}</span>
+            <span style={{color:'var(--gray-400)'}}>{d.val}</span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+/* SVG horizontal bars — no external deps */
+function SubnetBars({subnets,highlight,onBar}) {
+  const top10=[...subnets].sort((a,b)=>b.util-a.util).slice(0,10);
+  const [tip,setTip]=useState(null);
+  const W=420,lw=112,rpad=46,bh=18,gap=8;
+  const chartW=W-lw-rpad;
+  const H=top10.length*(bh+gap)+4;
+
+  return (
+    <div style={{position:'relative'}}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{display:'block'}}>
+        {[0,25,50,75,100].map(v=>{
+          const x=lw+v/100*chartW;
+          return <g key={v}>
+            <line x1={x} y1={0} x2={x} y2={H} stroke="rgba(255,255,255,.07)" strokeWidth={1}/>
+            <text x={x} y={H} fill="#94A3B8" fontSize={8} textAnchor="middle" dominantBaseline="hanging">{v}%</text>
+          </g>;
+        })}
+        {top10.map((s,i)=>{
+          const y=i*(bh+gap);
+          const bw=Math.max(2,s.util/100*chartW);
+          const col=utilColor(s.util);
+          const hl=highlight===s.id;
+          const dim=highlight&&!hl;
+          const label=s.name.length>15?s.name.slice(0,14)+'…':s.name;
+          return (
+            <g key={s.id} style={{cursor:'pointer'}} onClick={()=>onBar(s.id)}
+              onMouseEnter={()=>setTip(s)} onMouseLeave={()=>setTip(null)}>
+              <text x={lw-6} y={y+bh/2} fill={hl?col:'#CBD5E1'} fontSize={10}
+                textAnchor="end" dominantBaseline="central">{label}</text>
+              <rect x={lw} y={y} width={chartW} height={bh} fill="rgba(255,255,255,.04)" rx={3}/>
+              <rect x={lw} y={y} width={bw} height={bh} fill={col} rx={3}
+                opacity={dim?0.35:1} stroke={hl?'#fff':'none'} strokeWidth={1}/>
+              <text x={lw+bw+5} y={y+bh/2} fill={col} fontSize={10}
+                dominantBaseline="central" fontWeight={700}>{s.util}%</text>
+            </g>
+          );
+        })}
+      </svg>
+      {tip&&(
+        <div style={{position:'absolute',top:0,right:0,background:'var(--blue-mid)',border:'1px solid var(--border)',
+          borderRadius:6,padding:'8px 12px',fontSize:11,pointerEvents:'none',zIndex:10}}>
+          <div style={{color:'var(--teal)',fontWeight:700,marginBottom:3}}>{tip.name}</div>
+          <div style={{color:utilColor(tip.util),fontWeight:700}}>{tip.util}% utilization</div>
+          <div style={{color:'var(--gray-400)'}}>{tip.used} / {tip.total} IPs</div>
+          {tip.util>=90&&<div style={{color:'#FCA5A5',marginTop:3}}>⚠ Critical</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TTLTable({zones}) {
+  const bad=zones.filter(z=>z.anomaly);
+  const {sorted, Th} = useSortable(bad, 'fqdn');
+  if(!bad.length) return <div className="no-data">✓ No TTL anomalies detected</div>;
+  return (
+    <ShowMoreTable rows={sorted} defaultRows={10}
+      tableHead={<thead><tr><Th col="fqdn" label="Zone FQDN"/><Th col="view" label="View"/><Th col="ttl" label="TTL"/><Th col="neg_ttl" label="Neg TTL"/><th>Issues</th></tr></thead>}>
+      {visible => visible.map(z=>(
+        <tr key={z.id}>
+          <td style={{fontFamily:'monospace',fontSize:11}}>{z.fqdn}</td>
+          <td><span className="badge b-teal">{z.view}</span></td>
+          <td style={{color:z.ttl<60||z.ttl>86400?'#FCA5A5':'var(--gray-200)',fontFamily:'monospace',fontSize:11}}>{z.ttl}s</td>
+          <td style={{color:z.neg_ttl>3600?'#FCD34D':'var(--gray-200)',fontFamily:'monospace',fontSize:11}}>{z.neg_ttl}s</td>
+          <td>{z.issues.map((iss,i)=>(
+            <span key={i} className={`badge ${iss.includes('High')||iss.includes('Too High')?'b-amber':'b-red'}`}
+              style={{marginRight:3}}>{iss}</span>
+          ))}</td>
+        </tr>
+      ))}
+    </ShowMoreTable>
+  );
+}
+
+function FeedsTable({feeds}) {
+  const {sorted, Th} = useSortable(feeds, 'level');
+  return (
+    <ShowMoreTable rows={sorted} defaultRows={10}
+      tableHead={<thead><tr><th>Feed Name</th><th>Category</th><Th col="level" label="Threat Level"/><Th col="conf" label="Confidence"/><Th col="entries" label="Entries"/><th>Status</th></tr></thead>}>
+      {visible => visible.map(f=>(
+        <tr key={f.id}>
+          <td style={{fontWeight:500,fontSize:12}} title={f.name}>{f.name}</td>
+          <td style={{color:'var(--gray-400)',fontSize:11}}>{f.cat}</td>
+          <td><span className={`badge ${levelBadge(f.level)}`}>{f.level}</span></td>
+          <td style={{color:f.conf==='high'?'#6EE7B7':f.conf==='medium'?'#FCD34D':'var(--gray-400)',fontSize:11,fontWeight:700}}>{f.conf}</td>
+          <td style={{fontFamily:'monospace',fontSize:11,color:'var(--gray-200)'}}>{f.entries.toLocaleString()}</td>
+          <td>{f.active
+            ?<span style={{color:'var(--green)',fontSize:10,fontWeight:700}}>● Active</span>
+            :<span style={{color:'var(--gray-400)',fontSize:10}}>○ Off</span>}</td>
+        </tr>
+      ))}
+    </ShowMoreTable>
+  );
+}
+
+function PoliciesPanel({policies}) {
+  const actColor={block:'var(--red)',allow:'var(--green)',redirect:'var(--amber)',monitor:'var(--teal)'};
+  const activeCt=policies.filter(p=>p.active).length;
+  const totalRules=policies.reduce((a,p)=>a+p.rules,0);
+  return (
+    <>
+      <div style={{display:'flex',gap:12,marginBottom:14}}>
+        {[{v:activeCt,l:'Active Policies',c:'var(--teal)'},{v:totalRules,l:'Total Rules',c:'var(--amber)'}].map((x,i)=>(
+          <div key={i} className="card" style={{flex:1,textAlign:'center',padding:14}}>
+            <div style={{fontSize:28,fontWeight:800,color:x.c}}>{x.v}</div>
+            <div style={{fontSize:10,color:'var(--gray-400)',marginTop:3,textTransform:'uppercase',letterSpacing:'.1em'}}>{x.l}</div>
+          </div>
+        ))}
+      </div>
+      {policies.map(p=>(
+        <div key={p.id} className="pol-item">
+          <div>
+            <div style={{fontSize:12,fontWeight:500,color:p.active?'#fff':'var(--gray-400)'}}>{p.name}</div>
+            <div style={{fontSize:10,color:'var(--gray-400)',marginTop:2}}>{p.rules} rules · {p.created}</div>
+          </div>
+          <div style={{display:'flex',gap:7,alignItems:'center'}}>
+            <span className="badge" style={{background:`${actColor[p.action]}22`,color:actColor[p.action],border:`1px solid ${actColor[p.action]}44`}}>{p.action}</span>
+            {!p.active&&<span className="badge b-gray">off</span>}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function AuditTable({logs,limit=10}) {
+  const {sorted, Th} = useSortable(logs, 'ts', 'desc');
+  return (
+    <ShowMoreTable rows={sorted} defaultRows={limit}
+      tableHead={<thead><tr><Th col="ts" label="Time"/><Th col="user" label="User"/><Th col="action" label="Action"/><Th col="resource" label="Resource"/><Th col="result" label="Result"/></tr></thead>}>
+      {visible => visible.map(l=>(
+        <tr key={l.id}>
+          <td style={{fontFamily:'monospace',fontSize:10,color:'var(--gray-400)',whiteSpace:'nowrap'}} title={fmtTs(l.ts)}>{timeAgo(l.ts)}</td>
+          <td style={{fontSize:11,maxWidth:160,overflowWrap:'anywhere'}}>{l.user}</td>
+          <td><span style={{fontSize:10,fontWeight:700,color:actionColor(l.action)}}>{l.action}</span></td>
+          <td style={{fontSize:10,color:'var(--gray-400)',fontFamily:'monospace'}} title={l.resource}>{l.resource}</td>
+          <td>{l.result==='success'
+            ?<span style={{color:'var(--green)',fontWeight:700,fontSize:11}}>✓</span>
+            :<span style={{color:'var(--red)',fontWeight:700,fontSize:11}}>✗</span>}</td>
+        </tr>
+      ))}
+    </ShowMoreTable>
+  );
+}
+
+function RowLimitBar({limit, setLimit, options=[10,25,50,100]}) {
+  return (
+    <div className="row-limit-bar">
+      <span style={{fontSize:10,color:'var(--gray-400)'}}>Rows:</span>
+      {options.map(n=>(
+        <button key={n} className={`row-limit-btn${limit===n?' on':''}`} onClick={()=>setLimit(n)}>{n}</button>
+      ))}
+    </div>
+  );
+}
+
+function ShowMoreTable({rows, defaultRows=8, children, tableHead}) {
+  const [expanded, setExpanded] = React.useState(false);
+  const visible = expanded ? rows : rows.slice(0, defaultRows);
+  const hidden = rows.length - defaultRows;
+  return (
+    <>
+      <div className="scroll" style={{maxHeight: expanded ? 480 : 360}}>
+        <table className="tbl">
+          {tableHead}
+          <tbody>
+            {children(visible)}
+          </tbody>
+        </table>
+      </div>
+      {rows.length > defaultRows && (
+        <button className="show-more-btn" onClick={()=>setExpanded(e=>!e)}>
+          {expanded ? `▲ Show less` : `▼ Show ${Math.min(hidden, rows.length - defaultRows)} more (${rows.length} total)`}
+        </button>
+      )}
+    </>
+  );
+}
+
+let _lgSeq = 0;
+function MiniLineChart({data, valueKey, labelKey, color='var(--teal)', height=90}) {
+  if(!data||!data.length) return <div className="no-data">No data</div>;
+  const gid = React.useMemo(()=>'lg'+(++_lgSeq),[]);
+  const vals = data.map(d=>Number(d[valueKey])||0);
+  const max = Math.max(...vals,1);
+  const W=420, H=height, pad=8;
+  const pts = vals.map((v,i)=>({
+    x: pad + i*(W-2*pad)/(vals.length-1||1),
+    y: H - pad - (v/max)*(H-2*pad)
+  }));
+  const line = pts.map((p,i)=>`${i?'L':'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const area = line + ` L${pts[pts.length-1].x.toFixed(1)},${H} L${pts[0].x.toFixed(1)},${H} Z`;
+  const [tip,setTip] = useState(null);
+  const labels = data.map(d=>(d[labelKey]||'').toString().slice(0,10));
+  return (
+    <div style={{position:'relative'}}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{display:'block'}}>
+        <defs>
+          <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.25"/>
+            <stop offset="100%" stopColor={color} stopOpacity="0.02"/>
+          </linearGradient>
+        </defs>
+        <path d={area} fill={`url(#${gid})`}/>
+        <path d={line} fill="none" stroke={color} strokeWidth="1.8"/>
+        {pts.map((p,i)=>(
+          <circle key={i} cx={p.x} cy={p.y} r={tip===i?5:3} fill={color}
+            style={{cursor:'pointer'}} onMouseEnter={()=>setTip(i)} onMouseLeave={()=>setTip(null)}/>
+        ))}
+        {tip!=null&&(
+          <g>
+            <rect x={Math.min(pts[tip].x-38,W-80)} y={pts[tip].y-30} width={78} height={24} rx={4}
+              fill="var(--blue-mid)" stroke="var(--border)" strokeWidth={1}/>
+            <text x={Math.min(pts[tip].x-38,W-80)+39} y={pts[tip].y-14} textAnchor="middle"
+              fill={color} fontSize={10} fontWeight={700}>{vals[tip].toLocaleString()}</text>
+          </g>
+        )}
+      </svg>
+      <div style={{display:'flex',justifyContent:'space-between',marginTop:2}}>
+        {labels.map((l,i)=>i===0||i===labels.length-1||i===Math.floor(labels.length/2)?(
+          <span key={i} style={{fontSize:9,color:'var(--gray-400)'}}>{l.slice(5)}</span>
+        ):null)}
+      </div>
+    </div>
+  );
+}
+
+/* Generic horizontal-bar chart over arbitrary {label,value} rows — pure SVG */
+function VizBars({rows, color='var(--teal)'}) {
+  const data=rows.filter(r=>Number(r.value)>0).slice(0,12);
+  const [tip,setTip]=useState(null);
+  if(!data.length) return <div className="no-data">No numeric data to chart</div>;
+  const max=Math.max(...data.map(r=>Number(r.value)||0),1);
+  const W=420,lw=120,rpad=50,bh=16,gap=8;
+  const chartW=W-lw-rpad;
+  const H=data.length*(bh+gap)+2;
+  return (
+    <div style={{position:'relative'}}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{display:'block'}}>
+        {data.map((r,i)=>{
+          const y=i*(bh+gap);
+          const v=Number(r.value)||0;
+          const bw=Math.max(2,v/max*chartW);
+          const col=r.color||color;
+          const label=(r.label||'').length>17?(r.label).slice(0,16)+'…':r.label;
+          return (
+            <g key={i} onMouseEnter={()=>setTip(r)} onMouseLeave={()=>setTip(null)}>
+              <text x={lw-6} y={y+bh/2} fill="#CBD5E1" fontSize={10} textAnchor="end" dominantBaseline="central">{label}</text>
+              <rect x={lw} y={y} width={chartW} height={bh} fill="rgba(255,255,255,.04)" rx={3}/>
+              <rect x={lw} y={y} width={bw} height={bh} fill={col} rx={3}/>
+              <text x={lw+bw+5} y={y+bh/2} fill={col} fontSize={10} dominantBaseline="central" fontWeight={700}>{v.toLocaleString()}</text>
+            </g>
+          );
+        })}
+      </svg>
+      {tip&&(
+        <div style={{position:'absolute',top:0,right:0,background:'var(--blue-mid)',border:'1px solid var(--border)',borderRadius:6,padding:'6px 10px',fontSize:11,pointerEvents:'none',zIndex:10}}>
+          <div style={{color:'var(--teal)',fontWeight:700}}>{tip.label}</div>
+          <div style={{color:'var(--gray-200)'}}>{(Number(tip.value)||0).toLocaleString()}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Reusable per-widget renderer. `viz` ∈ table|bar|line|raw.
+   `columns`: [{key,label}] for the table. `labelKey`/`valueKey`: which fields
+   drive bar/line. `rowColor(row)` optional per-bar color. */
+function WidgetViz({data=[], viz='table', columns=[], labelKey, valueKey, rowColor, color='var(--teal)', defaultRows=10}) {
+  if(!data.length) return <div className="no-data">No data</div>;
+
+  if(viz==='raw')
+    return <pre style={{maxHeight:420,overflow:'auto',fontSize:10,lineHeight:1.5,color:'var(--gray-200)',background:'var(--surface-2)',border:'1px solid var(--border)',borderRadius:6,padding:'10px 12px',whiteSpace:'pre-wrap',wordBreak:'break-word'}}>{JSON.stringify(data,null,2)}</pre>;
+
+  if(viz==='bar'||viz==='line') {
+    const lk=labelKey||(columns[0]&&columns[0].key);
+    const vk=valueKey||(columns.find(c=>data.some(r=>typeof r[c.key]==='number'))||{}).key||(columns[1]&&columns[1].key);
+    if(!vk) return <div className="no-data">No numeric column to chart</div>;
+    if(viz==='line') {
+      const ld=data.slice(0,40);
+      return <MiniLineChart data={ld} valueKey={vk} labelKey={lk} color={color} height={120}/>;
+    }
+    const rows=[...data].sort((a,b)=>(Number(b[vk])||0)-(Number(a[vk])||0))
+      .map(r=>({label:String(r[lk]??'—'),value:Number(r[vk])||0,color:rowColor?rowColor(r):null}));
+    return <VizBars rows={rows} color={color}/>;
+  }
+
+  /* table (default) */
+  const cols=columns.length?columns:Object.keys(data[0]).slice(0,5).map(k=>({key:k,label:k}));
+  return (
+    <ShowMoreTable rows={data} defaultRows={defaultRows}
+      tableHead={<thead><tr>{cols.map(c=><th key={c.key} style={{whiteSpace:'nowrap'}}>{c.label}</th>)}</tr></thead>}>
+      {visible=>visible.map((r,i)=>(
+        <tr key={r.id||i}>
+          {cols.map(c=>{
+            const v=r[c.key];
+            return <td key={c.key} style={{fontSize:11,...(typeof v==='number'?{fontFamily:'monospace'}:{})}}>
+              {c.render?c.render(r):(typeof v==='number'?v.toLocaleString():(v==null?'—':String(v)))}
+            </td>;
+          })}
+        </tr>
+      ))}
+    </ShowMoreTable>
+  );
+}
+
+function DnsAnalyticsPanel({data, rowLimit, setRowLimit}) {
+  if(!data) return <div className="spinner"/>;
+  const {volume=[],top_clients=[],query_types=[]} = data;
+  const total = top_clients.reduce((a,r)=>a+(Number(r['NstarDnsActivity.total_query_count'])||0),0);
+  return (
+    <>
+      <div className="g3 mb20">
+        {[
+          {v:(top_clients.reduce((a,r)=>a+(Number(r['NstarDnsActivity.total_query_count'])||0),0)).toLocaleString(), l:'Total Queries (7d)', c:'var(--teal)'},
+          {v:top_clients.length, l:'Unique Clients', c:'var(--gray-200)'},
+          {v:query_types.length, l:'Query Types', c:'var(--amber)'},
+        ].map((x,i)=>(
+          <div key={i} className="card" style={{textAlign:'center'}}>
+            <div style={{fontSize:26,fontWeight:800,color:x.c}}>{x.v}</div>
+            <div style={{fontSize:10,color:'var(--gray-400)',marginTop:4,textTransform:'uppercase',letterSpacing:'.1em'}}>{x.l}</div>
+          </div>
+        ))}
+      </div>
+      <div className="g2 mb20">
+        <div className="card">
+          <div className="card-title"><div className="dot"/>Query Volume — Last 7 Days</div>
+          <MiniLineChart data={volume} valueKey="NstarDnsActivity.total_query_count" labelKey="NstarDnsActivity.timestamp" height={100}/>
+        </div>
+        <div className="card">
+          <div className="card-title"><div className="dot"/>Query Types</div>
+          {query_types.length===0?<div className="no-data">No data</div>:(
+            <div style={{marginTop:4}}>
+              {query_types.map((r,i)=>{
+                const cnt=Number(r['NstarDnsActivity.total_query_count'])||0;
+                const pct=total>0?Math.round(cnt/total*100):0;
+                const type=r['NstarDnsActivity.query_type']||'?';
+                return (
+                  <div key={i} style={{display:'flex',alignItems:'center',gap:8,marginBottom:7}}>
+                    <span style={{fontSize:11,width:40,color:'var(--gray-200)',fontFamily:'monospace'}}>{type}</span>
+                    <div style={{flex:1,height:6,background:'var(--surface-3)',borderRadius:3}}>
+                      <div style={{width:`${pct}%`,height:'100%',background:'var(--teal)',borderRadius:3}}/>
+                    </div>
+                    <span style={{fontSize:10,color:'var(--gray-400)',width:48,textAlign:'right'}}>{cnt.toLocaleString()}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-title"><div className="dot"/>Top DNS Clients — Last 7 Days</div>
+        <RowLimitBar limit={rowLimit} setLimit={setRowLimit}/>
+        <div className="scroll" style={{maxHeight:480}}>
+          <table className="tbl">
+            <thead><tr><th>#</th><th>Device</th><th>IP</th><th>Queries</th><th>Share</th></tr></thead>
+            <tbody>
+              {top_clients.slice(0,rowLimit).map((r,i)=>{
+                const cnt=Number(r['NstarDnsActivity.total_query_count'])||0;
+                const name=r['NstarDnsActivity.device_name']||'—';
+                const ip=r['NstarDnsActivity.device_ip']||'—';
+                const pct=total>0?Math.round(cnt/total*100):0;
+                return (
+                  <tr key={i}>
+                    <td style={{color:'var(--gray-400)',fontSize:10,width:28}}>{i+1}</td>
+                    <td style={{fontSize:12,fontWeight:500}}>{name}</td>
+                    <td style={{fontFamily:'monospace',fontSize:10,color:'var(--gray-400)'}}>{ip}</td>
+                    <td style={{fontFamily:'monospace',fontSize:11}}>{cnt.toLocaleString()}</td>
+                    <td>
+                      <div style={{display:'flex',alignItems:'center',gap:6}}>
+                        <div className="bar-track"><div className="bar-fill" style={{width:`${pct}%`,background:'var(--teal)'}}/></div>
+                        <span style={{fontSize:10,color:'var(--gray-400)'}}>{pct}%</span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function InsightsPanel({data, rowLimit, setRowLimit}) {
+  if(!data) return <div className="spinner"/>;
+  const rows = data.data || [];
+  const sevCount = rows.reduce((a,r)=>{
+    const s=(r['InsightsSummaryView.severity']||'unknown').toLowerCase();
+    a[s]=(a[s]||0)+1; return a;
+  },{});
+  const sevCfg = [
+    {k:'critical',label:'Critical',bg:'rgba(239,68,68,.15)',border:'rgba(239,68,68,.3)',color:'#FCA5A5'},
+    {k:'high',    label:'High',    bg:'rgba(245,158,11,.15)',border:'rgba(245,158,11,.3)',color:'#FCD34D'},
+    {k:'medium',  label:'Medium',  bg:'rgba(214,210,203,.12)',border:'rgba(214,210,203,.25)',color:'var(--teal)'},
+    {k:'low',     label:'Low',     bg:'rgba(148,163,184,.1)',border:'rgba(148,163,184,.2)',color:'var(--gray-400)'},
+  ];
+  return (
+    <>
+      <div className="sev-grid mb14">
+        {sevCfg.map(s=>(
+          <div key={s.k} className="sev-card" style={{background:s.bg,borderColor:s.border}}>
+            <div style={{fontSize:28,fontWeight:800,color:s.color}}>{sevCount[s.k]||0}</div>
+            <div style={{fontSize:10,color:s.color,marginTop:3,textTransform:'uppercase',letterSpacing:'.08em'}}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+      <div className="card">
+        <div className="card-title"><div className="dot" style={{background:'#EF4444'}}/>SOC Insights</div>
+        <RowLimitBar limit={rowLimit} setLimit={setRowLimit}/>
+        <div className="scroll" style={{maxHeight:480}}>
+          <table className="tbl">
+            <thead><tr><th>Insight</th><th>Severity</th><th>Status</th><th>Events</th><th>Assets</th><th>Time Saved</th></tr></thead>
+            <tbody>
+              {rows.slice(0,rowLimit).map((r,i)=>{
+                const name=r['InsightsSummaryView.name']||'—';
+                const sev=(r['InsightsSummaryView.severity']||'').toLowerCase();
+                const status=r['InsightsSummaryView.currentStatus']||'—';
+                const events=Number(r['InsightsSummaryView.totalEvents'])||0;
+                const assets=Number(r['InsightsSummaryView.totalVerifiedAssets'])||0;
+                const saved=Number(r['InsightsSummaryView.timeSaved'])||0;
+                const mins=Math.round(saved/60);
+                const sevCls={critical:'b-red',high:'b-amber',medium:'b-teal',low:'b-gray'}[sev]||'b-gray';
+                return (
+                  <tr key={i}>
+                    <td style={{fontSize:12,maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{name}</td>
+                    <td><span className={`badge ${sevCls}`}>{sev||'—'}</span></td>
+                    <td style={{fontSize:11,color:'var(--gray-400)'}}>{status}</td>
+                    <td style={{fontFamily:'monospace',fontSize:11}}>{events.toLocaleString()}</td>
+                    <td style={{fontFamily:'monospace',fontSize:11}}>{assets}</td>
+                    <td style={{fontSize:11,color:'var(--green)'}}>{mins>0?`${mins}m`:'—'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function ThreatLookupPanel() {
+  const [q,setQ]         = useState('');
+  const [results,setRes] = useState(null);
+  const [loading,setLd]  = useState(false);
+  const [blocked,setBlocked] = useState({});
+  const [actionLog,setActionLog] = useState(()=>LS.get('noc.actionLog',[]));
+  const logAction = (entry)=>{ const n=[entry,...actionLog].slice(0,50); setActionLog(n); LS.set('noc.actionLog',n); };
+
+  const lookup = async () => {
+    if(!q.trim()) return;
+    setLd(true); setRes(null);
+    try {
+      const r = await fetch(`/api/threat-lookup?q=${encodeURIComponent(q.trim())}`);
+      const d = r.ok ? await r.json() : {entities:[]};
+      setRes(d);
+    } catch { setRes({entities:[]}); }
+    setLd(false);
+  };
+
+  const block = async (domain) => {
+    if(!window.confirm(`Block "${domain}"?\n\nThis adds it to the Infoblox block list and denies DNS resolution network-wide. Requires DASHBOARD_TOKEN to be configured on the server.`)) return;
+    let ok=false, err='';
+    try {
+      const r = await fetch('/api/block-domain', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({domain})});
+      const j = await r.json().catch(()=>({})); ok = r.ok && j.ok!==false; if(!ok) err=(j&&j.error)||('HTTP '+r.status);
+    } catch(e) { err='network error'; }
+    if(ok) setBlocked(b=>({...b,[domain]:true}));
+    logAction({id:Date.now(),act:'block',domain,ok,err,ts:new Date().toISOString()});
+  };
+  const unblock = async (domain) => {
+    let ok=false, err='';
+    try {
+      const r = await fetch('/api/unblock-domain', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({domain})});
+      const j = await r.json().catch(()=>({})); ok = r.ok && j.ok!==false; if(!ok) err=(j&&j.error)||('HTTP '+r.status);
+    } catch(e) { err='network error'; }
+    if(ok) setBlocked(b=>{const n={...b}; delete n[domain]; return n;});
+    logAction({id:Date.now(),act:'unblock',domain,ok,err,ts:new Date().toISOString()});
+  };
+
+  const onKey = e => { if(e.key==='Enter') lookup(); };
+
+  const entities = results?.entities || [];
+
+  return (
+    <>
+      <div className="lookup-input-row">
+        <input className="lookup-in" placeholder="Search IP, hostname, or domain…"
+          value={q} onChange={e=>setQ(e.target.value)} onKeyDown={onKey}/>
+        <button className="lookup-btn" onClick={lookup} disabled={loading||!q.trim()}>
+          {loading?'…':'Search'}
+        </button>
+      </div>
+      {loading&&<div className="spinner"/>}
+      {results&&!loading&&(
+        entities.length===0
+          ?<div className="no-data">No entities found for "{q}"</div>
+          :<>
+            <div style={{fontSize:11,color:'var(--gray-400)',marginBottom:10}}>{entities.length} entit{entities.length===1?'y':'ies'} found</div>
+            {entities.map((e,i)=>{
+              const name=e.name||e.display_name||'—';
+              const type=e.type||e.resource_type||'—';
+              const addr=e.address||e.ip||'';
+              const isDomain=/^[a-zA-Z]/.test(q)&&q.includes('.');
+              return (
+                <div key={i} className="entity-card">
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:600,color:'var(--teal)',marginBottom:3}}>{name}</div>
+                      <div style={{fontSize:10,color:'var(--gray-400)'}}>{type}{addr&&` · ${addr}`}</div>
+                    </div>
+                    <span className="badge b-gray" style={{flexShrink:0}}>{type}</span>
+                  </div>
+                  {isDomain&&(
+                    blocked[name]
+                      ?<div style={{display:'flex',gap:8,alignItems:'center',marginTop:6}}>
+                         <span style={{fontSize:10,color:'#FCA5A5'}}>✓ Block request sent</span>
+                         <button className="collapse-btn" style={{margin:0}} onClick={()=>unblock(name)} title="Roll back this block">↶ Undo</button>
+                       </div>
+                      :<button className="block-btn" onClick={()=>block(name)}>⊗ Block Domain</button>
+                  )}
+                </div>
+              );
+            })}
+          </>
+      )}
+      {!results&&!loading&&(
+        <div className="no-data" style={{paddingTop:60}}>
+          Enter an IP address, hostname, or domain name to look up entities and threat intelligence
+        </div>
+      )}
+      {actionLog.length>0&&(
+        <div className="card" style={{marginTop:16}}>
+          <div className="card-title"><div className="dot"/>Action audit trail</div>
+          {actionLog.map(a=>(
+            <div key={a.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:'1px solid var(--border)',fontSize:11}}>
+              <span><b style={{color:a.act==='block'?'#FCA5A5':'var(--teal)'}}>{a.act}</b> {a.domain}{' '}
+                <span style={{color:a.ok?'#10B981':'#EF4444'}}>{a.ok?'✓':'✗ '+a.err}</span></span>
+              <span style={{display:'flex',gap:8,alignItems:'center'}}>
+                <span style={{color:'var(--gray-400)'}}>{new Date(a.ts).toLocaleTimeString()}</span>
+                {a.act==='block'&&a.ok&&<button className="collapse-btn" style={{margin:0}} onClick={()=>unblock(a.domain)} title="Roll back">↶ Undo</button>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function NXProxy({zones}) {
+  const zero=zones.filter(z=>z.records===0);
+  return (
+    <>
+      <div className="alert mb14" style={{background:'rgba(255,255,255,.08)',borderColor:'rgba(255,255,255,.25)',color:'var(--teal)'}}>
+        ℹ DNS query logs unavailable via IPAM API — showing zones with 0 records as NXDOMAIN proxy
+      </div>
+      {zero.length===0
+        ?<div className="no-data">No zones with zero records</div>
+        :zero.map(z=>(
+          <div key={z.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border)'}}>
+            <span style={{fontFamily:'monospace',fontSize:12}}>{z.fqdn}</span>
+            <div style={{display:'flex',gap:6}}>
+              <span className="badge b-teal">{z.view}</span>
+              <span className="badge b-red">0 records</span>
+            </div>
+          </div>
+        ))}
+    </>
+  );
+}
+
+function SearchSection({data, srchQ, setSrchQ, srchRes, setSrchRes, srching, setSrching, searchHistory, setSearchHistory}) {
+  const run = async (q) => {
+    q = q.trim();
+    if(!q) return;
+    setSrchQ(q);  // ensure input is updated
+    setSearchHistory(h=>{ const next=[q,...h.filter(x=>x!==q)].slice(0,5); LS.set('sh',next); return next; });
+    setSrching(true);
+    setSrchRes(null);
+
+    /* ── local search (instant, no server) ── */
+    const lq = q.toLowerCase();
+    const local = {
+      subnets:  (data?.subnets  ||[]).filter(s=>[s.name,s.addr,s.site].some(v=>(v||'').toLowerCase().includes(lq))),
+      hosts:    (data?.hosts    ||[]).filter(h=>[h.name,h.ip,h.type,h.status].some(v=>(v||'').toLowerCase().includes(lq))),
+      zones:    (data?.zones    ||[]).filter(z=>[z.fqdn,z.view].some(v=>(v||'').toLowerCase().includes(lq))),
+      feeds:    (data?.feeds    ||[]).filter(f=>[f.name,f.cat,f.level].some(v=>(v||'').toLowerCase().includes(lq))),
+      policies: (data?.secPolicies||[]).filter(p=>[p.name,p.action].some(v=>(v||'').toLowerCase().includes(lq))),
+      leases:   (data?.leases   ||[]).filter(l=>[l.addr,l.host,l.subnet].some(v=>(v||'').toLowerCase().includes(lq))),
+    };
+
+    /* ── MCP entity search ── */
+    let entities = [];
+    try {
+      const r = await fetch(`/api/threat-lookup?q=${encodeURIComponent(q)}`);
+      if(r.ok) { const d = await r.json(); entities = d.entities||[]; }
+    } catch {}
+
+    setSrchRes({local, entities, q});
+    setSrching(false);
+  };
+
+  const onKey = e => { if(e.key==='Enter') run(srchQ); };
+
+  const totalLocal = srchRes ? Object.values(srchRes.local).reduce((a,v)=>a+v.length,0) : 0;
+
+  return (
+    <div>
+      {searchHistory.length>0&&(
+        <div style={{marginBottom:10}}>
+          <div style={{fontSize:10,color:'var(--gray-600)',marginBottom:5}}>Recent searches:</div>
+          <div className="chip-bar">
+            {searchHistory.map((q,i)=>(
+              <button key={i} className="chip" onClick={()=>run(q)}>{q}</button>
+            ))}
+            <button className="chip" style={{color:'#FCA5A5'}} onClick={()=>{setSearchHistory([]); LS.set('sh',[]);}}>✕ clear</button>
+          </div>
+        </div>
+      )}
+      {/* Search input */}
+      <div className="card mb20" style={{padding:'18px 20px'}}>
+        <div style={{fontSize:13,fontWeight:700,color:'var(--teal)',marginBottom:12}}>Search your network</div>
+        <div style={{display:'flex',gap:8}}>
+          <input
+            style={{flex:1,background:'var(--surface-2)',border:'1px solid var(--border)',borderRadius:7,
+              color:'#fff',fontSize:13,padding:'10px 14px',outline:'none',transition:'border-color .12s'}}
+            placeholder="IP address, hostname, subnet, domain, zone…"
+            value={srchQ} onChange={e=>setSrchQ(e.target.value)} onKeyDown={onKey}
+            autoFocus
+            onFocus={e=>e.target.style.borderColor='rgba(255,255,255,.45)'}
+            onBlur={e=>e.target.style.borderColor='var(--border)'}
+          />
+          <button
+            onClick={()=>run(srchQ)}
+            disabled={!srchQ.trim()||srching}
+            style={{background:'var(--teal)',border:'none',borderRadius:7,color:'var(--blue-dark)',
+              fontSize:13,fontWeight:700,padding:'10px 22px',cursor:'pointer',opacity:(!srchQ.trim()||srching)?0.4:1,
+              transition:'opacity .15s',whiteSpace:'nowrap'}}>
+            {srching ? '…' : 'Search'}
+          </button>
+        </div>
+        <div style={{fontSize:10,color:'var(--gray-600)',marginTop:8}}>
+          Searches loaded data instantly + queries network entities via MCP
+        </div>
+      </div>
+
+      {/* Empty state */}
+      {!srchRes&&!srching&&(
+        <div className="no-data" style={{paddingTop:80}}>
+          <div style={{fontSize:32,marginBottom:12,opacity:.3}}>⊕</div>
+          <div style={{color:'var(--gray-400)',fontSize:13}}>Enter a search term and press Search or Enter</div>
+          <div style={{color:'var(--gray-600)',fontSize:11,marginTop:6}}>Searches subnets, hosts, zones, feeds, policies, leases, and network entities</div>
+        </div>
+      )}
+
+      {/* Loading */}
+      {srching&&<div className="spinner"/>}
+
+      {/* Results */}
+      {srchRes&&!srching&&(
+        <>
+          <div style={{fontSize:11,color:'var(--gray-400)',marginBottom:14}}>
+            Results for <b style={{color:'var(--teal)'}}>{srchRes.q}</b>
+            {' — '}{totalLocal} local match{totalLocal!==1?'es':''}{srchRes.entities.length>0?`, ${srchRes.entities.length} network entit${srchRes.entities.length!==1?'ies':'y'}`:''}
+          </div>
+
+          {totalLocal===0&&srchRes.entities.length===0&&(
+            <div className="no-data">No matches found for "{srchRes.q}"</div>
+          )}
+
+          {/* Local groups */}
+          {[
+            {key:'subnets',  label:'Subnets',         cols:['name','addr','cidr','util','site'], fmt:(s)=>`${s.name} — ${s.addr}/${s.cidr} (${s.util}%) ${s.site}`},
+            {key:'hosts',    label:'Hosts',            cols:['name','ip','type','status'],        fmt:(h)=>`${h.name} — ${h.ip} [${h.type}] ${h.status}`},
+            {key:'zones',    label:'DNS Zones',        cols:['fqdn','view'],                      fmt:(z)=>`${z.fqdn} (${z.view})`},
+            {key:'leases',   label:'DHCP Leases',      cols:['addr','host','subnet','state'],     fmt:(l)=>`${l.addr} — ${l.host||'—'} (${l.state})`},
+            {key:'feeds',    label:'Threat Feeds',     cols:['name','level','cat'],               fmt:(f)=>`${f.name} [${f.level}]`},
+            {key:'policies', label:'Security Policies',cols:['name','action'],                    fmt:(p)=>`${p.name} — ${p.action}`},
+          ].filter(g=>srchRes.local[g.key]?.length>0).map(g=>(
+            <div key={g.key} className="card mb14">
+              <div className="card-title">
+                <div className="dot"/>
+                {g.label}
+                <span style={{marginLeft:6,background:'var(--surface-3)',borderRadius:4,padding:'1px 7px',fontSize:10,color:'var(--teal)',fontWeight:700}}>
+                  {srchRes.local[g.key].length}
+                </span>
+              </div>
+              <div className="scroll" style={{maxHeight:220}}>
+                <table className="tbl">
+                  <tbody>
+                    {srchRes.local[g.key].map((item,i)=>{
+                      const txt=g.fmt(item);
+                      const lo=txt.toLowerCase();
+                      const qi=lo.indexOf(srchRes.q.toLowerCase());
+                      return (
+                        <tr key={i}>
+                          <td style={{fontFamily:'monospace',fontSize:11}}>
+                            {qi>=0
+                              ?<>{txt.slice(0,qi)}<mark style={{background:'rgba(214,210,203,.25)',color:'var(--teal-bright)',borderRadius:2}}>{txt.slice(qi,qi+srchRes.q.length)}</mark>{txt.slice(qi+srchRes.q.length)}</>
+                              :txt}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+
+          {/* MCP Network Entities */}
+          {srchRes.entities.length>0&&(
+            <div className="card">
+              <div className="card-title">
+                <div className="dot" style={{background:'#10B981'}}/>
+                Network Entities
+                <span style={{marginLeft:6,background:'var(--surface-3)',borderRadius:4,padding:'1px 7px',fontSize:10,color:'#10B981',fontWeight:700}}>
+                  {srchRes.entities.length}
+                </span>
+              </div>
+              {srchRes.entities.map((e,i)=>{
+                const name=e.name||e.object_information?.name||'—';
+                const type=e.resource_name||e.resource||'—';
+                const app=e.application_name||e.application||'';
+                const ip=e.object_information?.['Host IP Address']||e.object_information?.['IP Address']||'';
+                return (
+                  <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 0',borderBottom:'1px solid var(--border)'}}>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:600}}>{name}</div>
+                      <div style={{fontSize:10,color:'var(--gray-400)',marginTop:2}}>{app}{ip&&` · ${ip}`}</div>
+                    </div>
+                    <span className="badge b-teal">{type}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ChatPanel({open, onClose, data, messages, setMessages, queryMode, setQueryMode, searchQuery, setSearchQuery}) {
+  const [input, setInput] = useState('');
+  const [thinking, setThinking] = useState(false);
+  const [cmdHistory, setCmdHistory] = useState([]);
+  const [histIdx, setHistIdx] = useState(-1);
+  const endRef = useRef(null);
+  useEffect(()=>{ if(endRef.current) endRef.current.scrollIntoView({behavior:'smooth'}); },[messages,thinking]);
+
+  const fillAndSend = (q) => {
+    setMessages(m=>[...m,{id:Date.now(),role:'u',content:q}]);
+    setThinking(true);
+    fetch('/api/query',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})})
+      .then(r=>r.ok?r.json():null)
+      .then(json=>{
+        const ans=(json&&typeof json.answer==='string')?json.answer:'⚠ Query failed.';
+        const sugs=(json&&Array.isArray(json.suggestions))?json.suggestions:[];
+        const trace=(json&&Array.isArray(json.trace))?json.trace:[];
+        setMessages(m=>[...m,{id:Date.now(),role:'a',content:ans,suggestions:sugs,trace}]);
+        setThinking(false);
+      })
+      .catch(()=>{
+        setMessages(m=>[...m,{id:Date.now(),role:'a',content:'⚠ Server unavailable. Start with: python3 server.py'}]);
+        setThinking(false);
+      });
+  };
+
+  const send = async () => {
+    const q = input.trim();
+    if(!q) return;
+    setInput('');
+    setCmdHistory(h=>[q,...h.filter(x=>x!==q)].slice(0,50));
+    setHistIdx(-1);
+    if(queryMode==='filter') {
+      setSearchQuery(q);
+      setMessages(m=>[...m,
+        {id:Date.now(),role:'u',content:q},
+        {id:Date.now()+1,role:'a',content:`Filtering dashboard for "${q}" — matching results shown in each section.`}
+      ]);
+      return;
+    }
+    setMessages(m=>[...m,{id:Date.now(),role:'u',content:q}]);
+    setThinking(true);
+    try {
+      const r = await fetch('/api/query', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({question: q}),
+      });
+      const json = r.ok ? await r.json() : null;
+      const ans = (json && typeof json.answer === 'string') ? json.answer : '⚠ Query failed — server returned an error. Check server logs.';
+      const sugs = (json && Array.isArray(json.suggestions)) ? json.suggestions : [];
+      const trace = (json && Array.isArray(json.trace)) ? json.trace : [];
+      setMessages(m=>[...m,{id:Date.now(),role:'a',content:ans,suggestions:sugs,trace}]);
+    } catch(e) {
+      setMessages(m=>[...m,{id:Date.now(),role:'a',content:'⚠ Server unavailable. Start with: python3 server.py'}]);
+    }
+    setThinking(false);
+  };
+
+  const onKey = e => {
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();return;}
+    if(e.key==='ArrowUp'&&cmdHistory.length>0){
+      e.preventDefault();
+      const idx=Math.min(histIdx+1,cmdHistory.length-1);
+      setHistIdx(idx);setInput(cmdHistory[idx]);
+    }
+    if(e.key==='ArrowDown'){
+      e.preventDefault();
+      const idx=histIdx-1;
+      if(idx<0){setHistIdx(-1);setInput('');}
+      else{setHistIdx(idx);setInput(cmdHistory[idx]);}
+    }
+  };
+
+  return (
+    <div className={`chat-panel${open?' open':''}`}>
+      <div className="chat-head">
+        <div>
+          <div className="chat-head-title">⊕ Query Assistant</div>
+          {searchQuery&&queryMode==='filter'&&(
+            <div style={{fontSize:10,color:'var(--teal)',marginTop:2}}>
+              Filter active: "{searchQuery}"
+            </div>
+          )}
+        </div>
+        <div style={{display:'flex',gap:6,alignItems:'center'}}>
+          <button style={{background:'none',border:'1px solid var(--border)',borderRadius:5,color:'var(--gray-400)',cursor:'pointer',fontSize:10,fontWeight:600,padding:'3px 8px',letterSpacing:'.04em'}}
+            onClick={()=>setMessages([{id:0,role:'a',content:'Cleared. Ask anything about your network.'}])}>Clear</button>
+          <button className="close-btn" onClick={onClose}>✕</button>
+        </div>
+      </div>
+
+      <div className="chat-msgs">
+        {messages.map(m=>(
+          <div key={m.id}>
+            <div className={m.role==='u'?'msg-u':'msg-a'}>{m.content}</div>
+            {m.role==='a'&&m.trace&&m.trace.length>0&&(
+              <div style={{fontSize:10,color:'var(--gray-400)',margin:'2px 0 6px',padding:'4px 8px',background:'var(--surface-2)',borderRadius:6,borderLeft:'2px solid var(--teal)'}}
+                title={m.trace.map(t=>t.tool+'('+Object.values(t.args||{}).join(', ')+')').join('\n')}>
+                🔍 looked at: {m.trace.map(t=>t.tool.replace(/^get_|^search_/,'')).join(' → ')}
+              </div>
+            )}
+            {m.role==='a'&&m.suggestions&&m.suggestions.length>0&&(
+              <div className="suggestion-chips">
+                {m.suggestions.map((s,i)=>(
+                  <button key={i} className="suggestion-chip" onClick={()=>fillAndSend(s)}>{s}</button>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        {thinking&&(
+          <div className="msg-a">
+            <div className="thinking">
+              <div className="t-dot"/><div className="t-dot"/><div className="t-dot"/>
+            </div>
+          </div>
+        )}
+        <div ref={endRef}/>
+      </div>
+
+      <div className="chat-foot">
+        <div className="chat-row">
+          <textarea className="chat-in" rows={2}
+            placeholder="Ask about your network — try 'who is sending the most queries'…"
+            value={input} onChange={e=>setInput(e.target.value)} onKeyDown={onKey}/>
+          <button className="send-b" onClick={send} disabled={!input.trim()||thinking}>↑</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── MAIN APP ───────────────────────────────────────────────────────────────*/
+
+const SECTIONS=[
+  {id:'overview', icon:'◉', label:'Overview'},
+  {id:'ipam',     icon:'⊞', label:'IPAM / Subnets'},
+  {id:'dhcp',     icon:'⊃', label:'DHCP Leases'},
+  {id:'dns',      icon:'⊕', label:'DNS Zones'},
+  {id:'hosts',    icon:'⊡', label:'Hosts'},
+  {id:'security', icon:'⊛', label:'Security'},
+  {id:'threats',  icon:'⊗', label:'Threat Feeds'},
+  {id:'audit',    icon:'≡',  label:'Audit Logs'},
+  {id:'dns-analytics', icon:'⊘', label:'DNS Analytics'},
+  {id:'insights',      icon:'⊙', label:'SOC Insights'},
+  {id:'alerts',        icon:'⚑', label:'Alert Rules'},
+  {id:'threat-lookup', icon:'⊚', label:'Threat Lookup'},
+  {id:'search',        icon:'⊕', label:'Search'},
+];
+
+function IPAMTable({subnets, ipamChip, rowLimit, leaseCt}) {
+  const {sorted, Th} = useSortable(subnets, 'util', 'desc');
+  const hasSite = subnets.some(s=>s.site&&s.site!=='–'&&s.site!=='—');
+  const rows = sorted.filter(s=>{
+    if(!ipamChip) return true;
+    if(ipamChip==='critical') return s.util>=90;
+    if(ipamChip==='warning')  return s.util>=75&&s.util<90;
+    if(ipamChip==='healthy')  return s.util<75;
+    return true;
+  });
+  return (
+    <ShowMoreTable rows={rows} defaultRows={rowLimit}
+      tableHead={<thead><tr><Th col="name" label="Name"/><Th col="addr" label="Network"/>{hasSite&&<Th col="site" label="Site"/>}<th>Used / Total</th><Th col="util" label="Utilization"/><th>DHCP Leases</th></tr></thead>}>
+      {visible => visible.map(s=>(
+        <tr key={s.id}>
+          <td style={{fontWeight:500}} title={s.name!==s.addr?s.name:undefined}>{s.name!==s.addr?s.name:<span style={{color:'var(--gray-600)'}}>—</span>}</td>
+          <td style={{fontFamily:'monospace',fontSize:11,color:'var(--gray-200)'}} title={`${s.addr}/${s.cidr}`}>{s.addr}/{s.cidr}<button className="copy-btn" onClick={()=>copyToClip(s.addr)} title="Copy IP">⎘</button></td>
+          {hasSite&&<td style={{fontSize:11,color:'var(--gray-400)'}}>{s.site}</td>}
+          <td style={{fontFamily:'monospace',fontSize:11}}>{s.used} / {s.total}</td>
+          <td>
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <div className="bar-track"><div className="bar-fill" style={{width:`${s.util}%`,background:utilColor(s.util)}}/></div>
+              <span style={{fontSize:11,fontWeight:700,color:utilColor(s.util)}}>{s.util}%</span>
+            </div>
+          </td>
+          <td style={{fontSize:11,color:'var(--gray-400)'}}>{(leaseCt[s.id]||0).toLocaleString()}</td>
+        </tr>
+      ))}
+    </ShowMoreTable>
+  );
+}
+
+function HostsTable({hosts, rowLimit}) {
+  const {sorted, Th} = useSortable(hosts, 'name', 'asc');
+  return (
+    <ShowMoreTable rows={sorted} defaultRows={rowLimit}
+      tableHead={<thead><tr><Th col="name" label="Hostname"/><Th col="ip" label="IP"/><Th col="type" label="Type"/><Th col="status" label="Status"/></tr></thead>}>
+      {visible => visible.map(h=>(
+        <tr key={h.id}>
+          <td style={{fontSize:12,fontWeight:500}} title={h.name}>{h.name}</td>
+          <td style={{fontFamily:'monospace',fontSize:10,color:'var(--gray-400)'}} title={h.ip}>
+            {h.ip}{h.ip&&<button className="copy-btn" onClick={()=>copyToClip(h.ip)} title="Copy IP">⎘</button>}
+          </td>
+          <td style={{fontSize:10,color:'var(--gray-400)'}}>{h.type}</td>
+          <td><span style={{display:'flex',alignItems:'center',gap:5}}>
+            <span className={`s-dot s-${h.status}`}/>
+            <span style={{fontSize:11,textTransform:'capitalize'}}>{h.status}</span>
+          </span></td>
+        </tr>
+      ))}
+    </ShowMoreTable>
+  );
+}
+
+// ── Alert-rules engine: fire when a live metric crosses a threshold ──────────
+const ALERT_METRICS = [
+  {key:'offline_hosts',    label:'Offline / error hosts',      get:d=>d.hosts.filter(h=>h.status==='error'||h.status==='offline').length},
+  {key:'critical_subnets', label:'Subnets ≥90% utilization',   get:d=>d.subnets.filter(s=>s.util>=90).length},
+  {key:'ttl_anomalies',    label:'DNS zones w/ TTL anomalies',  get:d=>d.zones.filter(z=>z.anomaly).length},
+  {key:'audit_failures',   label:'Failed audit events',        get:d=>d.auditLogs.filter(l=>l.result==='failure').length},
+  {key:'active_feeds',     label:'Active threat feeds',         get:d=>d.feeds.filter(f=>f.active).length},
+  {key:'total_hosts',      label:'Total hosts',                 get:d=>d.hosts.length},
+];
+const ALERT_OPS = {'>=':(a,b)=>a>=b, '>':(a,b)=>a>b, '<=':(a,b)=>a<=b, '<':(a,b)=>a<b, '==':(a,b)=>a===b};
+const metricLabel = k => (ALERT_METRICS.find(m=>m.key===k)||{}).label || k;
+function evalAlerts(data, rules){
+  if(!data) return [];
+  return rules.map(r=>{
+    const m = ALERT_METRICS.find(x=>x.key===r.metric);
+    const val = m ? m.get(data) : 0;
+    const op = ALERT_OPS[r.op] || (()=>false);
+    return {...r, value:val, firing: op(val, Number(r.threshold))};
+  });
+}
+// snapshot of headline counts, for change-detection between refreshes
+function snapMetrics(data){
+  if(!data) return {};
+  const o={}; ALERT_METRICS.forEach(m=>{o[m.key]=m.get(data);});
+  o.total_subnets=data.subnets.length; o.total_zones=data.zones.length; o.total_leases=data.leases.length;
+  return o;
+}
+
+function AlertsPanel({data, rules, setRules}){
+  const [metric,setMetric]=useState(ALERT_METRICS[0].key);
+  const [op,setOp]=useState('>=');
+  const [thr,setThr]=useState(1);
+  const add=()=>{ const n=[...rules,{id:Date.now(),metric,op,threshold:Number(thr)}]; setRules(n); LS.set('noc.alertRules',n); };
+  const del=id=>{ const n=rules.filter(r=>r.id!==id); setRules(n); LS.set('noc.alertRules',n); };
+  const evald=evalAlerts(data,rules);
+  const inStyle={background:'var(--surface-2)',border:'1px solid var(--border)',borderRadius:6,color:'var(--gray-200)',padding:'6px 8px'};
+  return (
+    <div className="card">
+      <div className="card-title"><div className="dot"/>Alert Rules — fire when a live metric crosses a threshold</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:14}}>
+        <select className="viz-sel" value={metric} onChange={e=>setMetric(e.target.value)}>
+          {ALERT_METRICS.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}
+        </select>
+        <select className="viz-sel" value={op} onChange={e=>setOp(e.target.value)}>
+          {Object.keys(ALERT_OPS).map(o=><option key={o} value={o}>{o}</option>)}
+        </select>
+        <input type="number" value={thr} onChange={e=>setThr(e.target.value)} style={{...inStyle,width:80}}/>
+        <button className="lookup-btn" onClick={add}>+ Add rule</button>
+      </div>
+      {evald.length===0
+        ? <div className="no-data">No alert rules yet. Add one above — e.g. "Offline / error hosts ≥ 1".</div>
+        : <div className="scroll"><table className="tbl" style={{width:'100%',fontSize:12,borderCollapse:'collapse'}}>
+            <thead><tr style={{textAlign:'left',color:'var(--gray-400)'}}>
+              <th style={{padding:'6px 8px'}}>Status</th><th style={{padding:'6px 8px'}}>Metric</th>
+              <th style={{padding:'6px 8px'}}>Condition</th><th style={{padding:'6px 8px'}}>Current</th><th></th></tr></thead>
+            <tbody>{evald.map(r=>(
+              <tr key={r.id} style={{borderTop:'1px solid var(--border)'}}>
+                <td style={{padding:'6px 8px'}}><span style={{color:r.firing?'#EF4444':'#10B981',fontWeight:700}}>{r.firing?'● FIRING':'○ ok'}</span></td>
+                <td style={{padding:'6px 8px'}}>{metricLabel(r.metric)}</td>
+                <td style={{padding:'6px 8px'}}>{r.op} {r.threshold}</td>
+                <td style={{padding:'6px 8px',fontWeight:700}}>{r.value}</td>
+                <td style={{padding:'6px 8px'}}><button className="collapse-btn" style={{margin:0}} onClick={()=>del(r.id)} title="Delete rule">✕</button></td>
+              </tr>
+            ))}</tbody>
+          </table></div>}
+    </div>
+  );
+}
+
+function App() {
+  const [data,setData]         = useState(null);
+  const [loading,setLoading]   = useState(true);
+  const [refreshing,setRefreshing] = useState(false);
+  const [lastUpd,setLastUpd]   = useState(null);
+  const [section,setSection]   = useState('overview');
+  const [hostFilt,setHostFilt] = useState(null);
+  const [subFilt,setSubFilt]   = useState(null);
+  const [chatOpen,setChatOpen]       = useState(false);
+  const [queryMode,setQueryMode]     = useState('ask');
+  const [searchQuery,setSearchQuery] = useState('');
+  const [messages,setMessages]       = useState([{id:0,role:'a',content:'Ask anything about your network in plain English:\n\n• "who is sending the most queries"\n• "show me offline hosts"\n• "any critical subnets"\n• "DNS TTL problems"\n• "what\'s the network status"\n• "who changed things recently"\n\nFor finding IPs or hostnames, use the Search tab.'}]);
+  const [dnsAnalytics, setDnsAnalytics] = useState(null);
+  const [insights, setInsights]         = useState(null);
+  const [srchQ, setSrchQ]       = useState('');
+  const [srchRes, setSrchRes]   = useState(null);
+  const [srching, setSrching]   = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(()=>LS.get('ar',0));
+  const [arCountdown, setArCountdown] = useState(0);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [ipamChip, setIpamChip] = useState(null);
+  const [hostChip, setHostChip] = useState(null);
+  const [searchHistory, setSearchHistory] = useState(()=>LS.get('sh',[]));
+  const [zoneFilt, setZoneFilt] = useState(null);
+  const [rowLimits, setRowLimits]       = useState(()=>LS.get('rl',{}));
+  const [collapsed, setCollapsed]       = useState(()=>LS.get('cl',{}));
+  const DEFAULT_ORDER=['kpis','hosts','subnets','ttl','audit','pols','feeds'];
+  const [overviewOrder, setOverviewOrder] = useState(()=>{
+    const saved=LS.get('noc.widgetOrder', null) || LS.get('oo', null) || DEFAULT_ORDER;
+    // keep only known ids + append any missing defaults (forward-compatible)
+    const known=saved.filter(id=>DEFAULT_ORDER.includes(id));
+    return [...known, ...DEFAULT_ORDER.filter(id=>!known.includes(id))];
+  });
+  const [vizMode, setVizMode]           = useState(()=>LS.get('noc.viz',{}));
+  const [fullscreen, setFullscreen]     = useState(null);
+  const [dragOver, setDragOver]         = useState(null);
+  const [dragging, setDragging]         = useState(null);
+  const [dragArmed, setDragArmed]       = useState(null);
+
+  const getViz = (id, def='table') => vizMode[id] || def;
+  const setViz = (id, v) => { const n={...vizMode,[id]:v}; setVizMode(n); LS.set('noc.viz',n); };
+  const [alertRules, setAlertRules] = useState(()=>LS.get('noc.alertRules',[]));
+  const [deltas, setDeltas] = useState(null);
+  const [accounts, setAccounts]     = useState([]);
+  const [activeAcct, setActiveAcct] = useState('');   // CSP account id
+  const [showAcctMenu, setShowAcctMenu] = useState(false);
+  const [switchingAcct, setSwitchingAcct] = useState(false);
+  const [acctSearch, setAcctSearch] = useState('');
+
+  const rl = (key, def=25) => rowLimits[key]||def;
+  const setRl = (key, val) => { const n={...rowLimits,[key]:val}; setRowLimits(n); LS.set('rl',n); };
+  const toggleCollapse = (key) => { const n={...collapsed,[key]:!collapsed[key]}; setCollapsed(n); LS.set('cl',n); };
+  const toggleFs = (key) => setFullscreen(f=>f===key?null:key);
+
+  const onDragStart = (e, id) => { e.dataTransfer.setData('card',id); e.dataTransfer.effectAllowed='move'; setDragging(id); };
+  const onDragOver  = (e, id) => { e.preventDefault(); e.dataTransfer.dropEffect='move'; if(dragOver!==id) setDragOver(id); };
+  const onDragEnd   = () => { setDragOver(null); setDragging(null); };
+  const onDrop      = (e, id) => {
+    e.preventDefault(); setDragOver(null); setDragging(null);
+    const from = e.dataTransfer.getData('card');
+    if(from===id) return;
+    const arr=[...overviewOrder];
+    const fi=arr.indexOf(from), ti=arr.indexOf(id);
+    if(fi<0||ti<0) return;
+    arr.splice(fi,1); arr.splice(ti,0,from);
+    setOverviewOrder(arr); LS.set('noc.widgetOrder',arr);
+  };
+
+  // props for a draggable bento wrapper; whole card is the drop target but
+  // dragging only initiates from the handle (so inner buttons/text still work)
+  const wrapProps = (id, extra='') => ({
+    draggable: dragArmed===id,
+    className:`drag-card${extra?' '+extra:''}${dragging===id?' dragging':''}${dragOver===id?' drag-over':''}`,
+    onDragStart:e=>onDragStart(e,id),
+    onDragOver:e=>onDragOver(e,id),
+    onDrop:e=>onDrop(e,id),
+    onDragEnd:()=>{onDragEnd(); setDragArmed(null);}
+  });
+  const DragHandle = ({id}) => (
+    <span className="drag-handle" title="Drag to reorder" aria-label="Drag to reorder"
+      onMouseDown={()=>setDragArmed(id)} onMouseUp={()=>setDragArmed(null)}>⠿</span>
+  );
+  const VIZ_OPTS=[['table','Table'],['bar','Bar'],['line','Line'],['raw','Raw']];
+  const VizSelect = ({id, def='table', opts=VIZ_OPTS}) => (
+    <select className="viz-sel" value={getViz(id,def)} onChange={e=>setViz(id,e.target.value)}
+      onMouseDown={e=>e.stopPropagation()} title="Change visualization">
+      {opts.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+    </select>
+  );
+
+  const load = useCallback(async (bustCache=false)=>{
+    // Show stale data immediately so UI isn't blank
+    if(!data) {
+      const stale = LS.get('_dc', null);
+      if(stale) { setData(stale); setLoading(false); }
+    }
+    setRefreshing(true);
+    if(bustCache) { try { await fetch('/api/cache-bust'); } catch{} }
+    try {
+      const resp = await fetch('/api/data');
+      if(resp.ok) {
+        const d = await resp.json();
+        /* fall back to MOCK for any missing arrays so the UI never breaks */
+        const merged = {
+          subnets:     d.subnets?.length     ? d.subnets     : MOCK.subnets,
+          leases:      d.leases?.length      ? d.leases      : MOCK.leases,
+          dnsViews:    d.dnsViews?.length    ? d.dnsViews    : MOCK.dnsViews,
+          zones:       d.zones?.length       ? d.zones       : MOCK.zones,
+          hosts:       d.hosts?.length       ? d.hosts       : MOCK.hosts,
+          secPolicies: d.secPolicies?.length ? d.secPolicies : MOCK.secPolicies,
+          feeds:       d.feeds?.length       ? d.feeds       : MOCK.feeds,
+          auditLogs:   d.auditLogs?.length   ? d.auditLogs   : MOCK.auditLogs,
+        };
+        setData(merged);
+        LS.set('_dc', {subnets:merged.subnets||[],leases:merged.leases||[],dnsViews:merged.dnsViews||[],zones:merged.zones||[],hosts:merged.hosts||[],secPolicies:merged.secPolicies||[],feeds:merged.feeds||[],auditLogs:merged.auditLogs||[]});
+        // change-detection: diff headline counts vs the previous refresh
+        const _prev = LS.get('noc.prevSnap', null);
+        const _cur  = snapMetrics(merged);
+        if(_prev) setDeltas(Object.keys(_cur).reduce((a,k)=>{const dv=_cur[k]-(k in _prev?_prev[k]:_cur[k]); if(dv!==0)a[k]=dv; return a;},{}));
+        LS.set('noc.prevSnap', _cur);
+      } else {
+        setData(MOCK); /* server error — use mock */
+      }
+    } catch(e) {
+      setData(MOCK); /* no server running — use mock */
+    }
+    setLastUpd(new Date());
+    setLoading(false);
+    setRefreshing(false);
+  },[]);
+
+  useEffect(()=>{load();},[]);
+
+  // CSP accounts this API key's user can act in (portal-style sandbox switch)
+  useEffect(()=>{
+    fetch('/api/accounts').then(r=>r.json()).then(d=>{
+      setAccounts(d.accounts||[]);
+      setActiveAcct(d.active||'');
+    }).catch(()=>{});
+  },[]);
+  const switchAcct = async (id) => {
+    setShowAcctMenu(false); setAcctSearch('');
+    if(id===activeAcct) return;
+    setSwitchingAcct(true);
+    try {
+      const r = await fetch('/api/switch-account', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({id})
+      });
+      const d = await r.json();
+      if(d.ok){
+        setActiveAcct(d.active);
+        LS.set('_dc', null);   // stale cache belongs to the previous tenant
+        LS.set('noc.prevSnap', null);
+        setData(null); setLoading(true);
+        await load(true);
+      }
+    } catch{}
+    setSwitchingAcct(false);
+  };
+
+  // deep-link: section <-> URL hash (shareable views)
+  useEffect(()=>{
+    const apply=()=>{ const id=decodeURIComponent(location.hash.replace(/^#/,'')).split('?')[0];
+      if(id && SECTIONS.some(s=>s.id===id)) setSection(id); };
+    apply();
+    window.addEventListener('hashchange',apply);
+    return ()=>window.removeEventListener('hashchange',apply);
+  },[]);
+  useEffect(()=>{
+    if(location.hash.replace(/^#/,'')!==section) history.replaceState(null,'','#'+section);
+  },[section]);
+
+  // auto-tooltip: set title=full value on any table cell/badge that is actually truncated
+  useEffect(()=>{
+    const t=setTimeout(()=>{
+      document.querySelectorAll('.tbl td, .tbl td .badge').forEach(el=>{
+        if(el.scrollWidth>el.clientWidth+1){ if(!el.title) el.title=el.textContent; }
+        else if(el.title&&el.title===el.textContent){ el.removeAttribute('title'); }
+      });
+    },120);
+    return ()=>clearTimeout(t);
+  });
+
+  useEffect(()=>{
+    if(!autoRefresh) { setArCountdown(0); return; }
+    setArCountdown(autoRefresh);
+    const tick = setInterval(()=>{
+      setArCountdown(c=>{
+        if(c<=1){ load(); return autoRefresh; }
+        return c-1;
+      });
+    },1000);
+    return ()=>clearInterval(tick);
+  },[autoRefresh]);
+
+  useEffect(()=>{
+    const handler = e => {
+      if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT'||e.target.isContentEditable) return;
+      if(e.key==='?') { setShowShortcuts(s=>!s); return; }
+      if(e.key==='Escape') { setChatOpen(false); setSubFilt(null); setHostFilt(null); setShowShortcuts(false); return; }
+      if(e.key==='r'&&!e.metaKey&&!e.ctrlKey) { load(); return; }
+      if(e.key==='/'){ e.preventDefault(); setSection('search'); return; }
+      const idx = parseInt(e.key);
+      if(idx>=1&&idx<=9) { const s=SECTIONS[idx-1]; if(s) setSection(s.id); }
+    };
+    document.addEventListener('keydown', handler);
+    return ()=>document.removeEventListener('keydown', handler);
+  },[load]);
+
+  useEffect(()=>{
+    document.body.classList.toggle('chat-open', chatOpen);
+    return ()=>document.body.classList.remove('chat-open');
+  },[chatOpen]);
+
+  useEffect(()=>{
+    if(!data) { document.title='Infoblox NOC Dashboard'; return; }
+    const crit = data.subnets.filter(s=>s.util>=90).length;
+    const errs = data.hosts.filter(h=>h.status==='error'||h.status==='offline').length;
+    let title = 'Infoblox NOC';
+    if(crit>0) title += ' ⚠'+crit+' critical';
+    if(errs>0) title += ' | '+errs+' errors';
+    document.title = title;
+  },[data]);
+
+  useEffect(()=>{
+    if(section==='dns-analytics'&&!dnsAnalytics) {
+      fetch('/api/dns-analytics').then(r=>r.ok?r.json():null).then(d=>d&&setDnsAnalytics(d)).catch(()=>{});
+    }
+    if(section==='insights'&&!insights) {
+      fetch('/api/insights').then(r=>r.ok?r.json():null).then(d=>d&&setInsights(d)).catch(()=>{});
+    }
+  },[section]);
+
+  if(loading&&!data) return (
+    <div style={{display:'flex',height:'100vh',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:14}}>
+      <div className="spinner" style={{width:44,height:44}}/>
+      <div style={{color:'var(--teal)',fontSize:14,fontWeight:600}}>Connecting to Infoblox</div>
+      <div style={{color:'var(--gray-400)',fontSize:12}}>Loading network data…</div>
+    </div>
+  );
+
+  const {subnets,leases,dnsViews,zones,hosts,secPolicies,feeds,auditLogs}=data;
+
+  /* search filter — only active when queryMode==='filter' and searchQuery set */
+  const sq = (queryMode==='filter'&&searchQuery) ? searchQuery.toLowerCase() : '';
+  const s_subnets  = sq ? subnets.filter(s=>[s.name,s.addr,s.site].some(v=>v.toLowerCase().includes(sq)))  : subnets;
+  const s_leases   = sq ? leases.filter(l=>[l.addr,l.host,l.subnet].some(v=>v.toLowerCase().includes(sq))) : leases;
+  const s_zones    = sq ? zones.filter(z=>[z.fqdn,z.view].some(v=>v.toLowerCase().includes(sq)))           : zones;
+  const s_hosts    = sq ? hosts.filter(h=>[h.name,h.ip,h.type,h.status].some(v=>v.toLowerCase().includes(sq))) : hosts;
+  const s_policies = sq ? secPolicies.filter(p=>[p.name,p.action].some(v=>v.toLowerCase().includes(sq)))   : secPolicies;
+  const s_feeds    = sq ? feeds.filter(f=>[f.name,f.cat,f.level].some(v=>v.toLowerCase().includes(sq)))    : feeds;
+  const s_logs     = sq ? auditLogs.filter(l=>[l.user,l.action,l.resource].some(v=>v.toLowerCase().includes(sq))) : auditLogs;
+
+  const critSubs  = subnets.filter(s=>s.util>=90);
+  const onlineH   = hosts.filter(h=>h.status==='online');
+  const ttlBad    = zones.filter(z=>z.anomaly);
+  const activeF   = feeds.filter(f=>f.active);
+  const leaseCt   = leases.reduce((a,l)=>{a[l.subnet_id]=(a[l.subnet_id]||0)+1;return a},{});
+  const filtHosts = (hostFilt||hostChip) ? s_hosts.filter(h=>h.status===(hostFilt||hostChip)) : s_hosts;
+  const firingAlerts = evalAlerts(data, alertRules).filter(a=>a.firing);
+  const shareView = () => { const url=location.origin+location.pathname+'#'+section;
+    if(navigator.clipboard) navigator.clipboard.writeText(url).catch(()=>{}); };
+
+  return (
+    <div style={{display:'flex',minHeight:'100vh'}}>
+
+      {/* SIDEBAR */}
+      <div className="sidebar">
+        <div className="logo">
+          <svg width="28" height="28" viewBox="0 0 28 28">
+            <rect width="28" height="28" rx="6" fill="#252321"/>
+            <path d="M7 20L14 8L21 20" stroke="#C8C4BE" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+            <circle cx="14" cy="8" r="2" fill="#C8C4BE"/>
+          </svg>
+          <div>
+            <div className="logo-text">Infoblox</div>
+            <div className="logo-sub">NOC Dashboard</div>
+          </div>
+        </div>
+
+        <nav className="sidebar-nav">
+          <div className="nav-sec">Navigation</div>
+          {SECTIONS.map(s=>{
+            let badge = null;
+            if(data&&s.id==='ipam') { const c=data.subnets.filter(x=>x.util>=90).length; if(c>0) badge=<span className="badge-pill">{c}</span>; }
+            if(data&&s.id==='hosts') { const c=data.hosts.filter(h=>h.status==='error'||h.status==='offline').length; if(c>0) badge=<span className="badge-pill">{c}</span>; }
+            if(data&&s.id==='dns') { const c=data.zones.filter(z=>z.anomaly).length; if(c>0) badge=<span className="badge-pill badge-pill-amber">{c}</span>; }
+            if(data&&s.id==='audit') { const c=data.auditLogs.filter(l=>l.result==='failure').length; if(c>0) badge=<span className="badge-pill badge-pill-amber">{c}</span>; }
+            if(s.id==='alerts'&&firingAlerts.length>0) badge=<span className="badge-pill">{firingAlerts.length}</span>;
+            return (
+              <button key={s.id} className={`nav-item${section===s.id?' active':''}`} onClick={()=>setSection(s.id)}>
+                <span className="nav-icon">{s.icon}</span>{s.label}{badge}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="sidebar-foot">
+          <div style={{color:'var(--green)',display:'flex',alignItems:'center',gap:5}}>
+            <span className="pulse">●</span> API Connected
+          </div>
+          {accounts.length>0&&(
+            <div style={{position:'relative'}}>
+              <div className="acct-name">Account: <b style={{color:'var(--gray-200)'}}>{(accounts.find(a=>a.id===activeAcct)||{}).name||'—'}</b></div>
+              {accounts.length===1&&(
+                <div style={{fontSize:9,color:'var(--gray-600)',marginTop:3,lineHeight:1.4}}
+                  title="This API key's user belongs to a single CSP account. Use an interactive User API Key (portal → user menu → User API Keys) to enable switching.">
+                  single-account key — switching off
+                </div>
+              )}
+              {accounts.length>1&&<button className="acct-switch-btn" disabled={switchingAcct} onClick={()=>setShowAcctMenu(m=>!m)}>
+                {switchingAcct?'⟳ Switching…':'⇄ Switch account'}
+              </button>}
+              {showAcctMenu&&(
+                <>
+                  <div className="acct-overlay" onClick={()=>{setShowAcctMenu(false);setAcctSearch('');}}/>
+                  <div className="acct-menu">
+                    {accounts.length>6&&(
+                      <input className="acct-search" autoFocus placeholder="Search accounts…"
+                        value={acctSearch} onChange={e=>setAcctSearch(e.target.value)}/>
+                    )}
+                    <div style={{maxHeight:240,overflowY:'auto'}}>
+                      {accounts.filter(a=>a.name.toLowerCase().includes(acctSearch.toLowerCase())).map(a=>(
+                        <button key={a.id} className={`acct-menu-item${a.id===activeAcct?' active':''}`}
+                          title={a.name} onClick={()=>switchAcct(a.id)}>
+                          {a.id===activeAcct?'● ':'○ '}{a.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* MAIN */}
+      <div className="main">
+        <div className="topbar">
+          <div>
+            <div className="page-title">{SECTIONS.find(s=>s.id===section)?.label}</div>
+            <div className="page-sub">{lastUpd&&`Last updated: ${lastUpd.toLocaleTimeString()}`}</div>
+          </div>
+          <div style={{display:'flex',alignItems:'center'}}>
+            <select className="auto-refresh-sel" value={autoRefresh}
+              onChange={e=>{const v=Number(e.target.value);setAutoRefresh(v);LS.set('ar',v);}}>
+              <option value={0}>Auto-refresh: Off</option>
+              <option value={30}>Auto-refresh: 30s</option>
+              <option value={60}>Auto-refresh: 1m</option>
+              <option value={300}>Auto-refresh: 5m</option>
+            </select>
+            {autoRefresh>0&&<span className="refresh-countdown">{arCountdown}s</span>}
+            <button className="refresh-btn" onClick={()=>load(true)}>
+              <span className={refreshing?'spin':''} style={{display:'inline-block'}}>↻</span>
+              {refreshing?'Refreshing…':'Refresh All'}
+            </button>
+            <button className={`chat-toggle-btn${chatOpen?' on':''}`} onClick={()=>setChatOpen(o=>!o)}>
+              ⊕ {chatOpen?'Close Query':'Query'}
+            </button>
+            <button className="chat-toggle-btn" onClick={shareView} title="Copy a deep link to this view">◳ Share</button>
+            <button style={{background:'none',border:'1px solid var(--border)',borderRadius:6,
+              color:'var(--gray-400)',fontSize:12,fontWeight:700,padding:'7px 10px',cursor:'pointer',marginLeft:6}}
+              onClick={()=>setShowShortcuts(s=>!s)} title="Keyboard shortcuts">?</button>
+          </div>
+        </div>
+        {sq&&(
+          <div className="filter-banner">
+            <span>Filtering: "<b>{searchQuery}</b>" — results narrowed in all sections</span>
+            <button className="filter-clear" onClick={()=>setSearchQuery('')}>✕ Clear</button>
+          </div>
+        )}
+
+        {/* ── OVERVIEW ── */}
+        {section==='overview'&&(
+          <>
+            {/* Priority Issue Strip */}
+            {(()=>{
+              const issues=[];
+              const errHosts=hosts.filter(h=>h.status==='error'||h.status==='offline');
+              if(errHosts.length>0) issues.push({cls:'issue-row-crit',icon:'⚠',msg:`${errHosts.length} host${errHosts.length>1?'s':''} offline or in error state`,section:'hosts'});
+              const ttlIssues=zones.filter(z=>z.anomaly);
+              if(ttlIssues.length>0) issues.push({cls:'issue-row-warn',icon:'⚡',msg:`${ttlIssues.length} DNS zone${ttlIssues.length>1?'s':''} with TTL anomalies`,section:'dns'});
+              if(critSubs.length>0) issues.push({cls:'issue-row-warn',icon:'⚠',msg:`${critSubs.length} subnet${critSubs.length>1?'s':''} at ≥90% utilization`,section:'ipam'});
+              const feedCrit=feeds.filter(f=>f.level==='critical'&&f.active);
+              if(feedCrit.length>0) issues.push({cls:'issue-row-warn',icon:'🛡',msg:`${feedCrit.length} active critical threat feeds`,section:'threats'});
+              if(issues.length===0) return (
+                <div className="issue-row-ok issue-row" style={{marginBottom:18}}>
+                  <span>✓ All systems normal — no critical issues detected</span>
+                </div>
+              );
+              return (
+                <div className="issue-strip">
+                  {issues.map((iss,i)=>(
+                    <div key={i} className={`issue-row ${iss.cls}`} onClick={()=>setSection(iss.section)}>
+                      <span>{iss.icon} {iss.msg}</span>
+                      <span className="issue-arrow">→ {iss.section.toUpperCase()}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+            {firingAlerts.length>0&&(
+              <div className="issue-strip" style={{marginBottom:14}}>
+                {firingAlerts.map(a=>(
+                  <div key={a.id} className="issue-row issue-row-crit" onClick={()=>setSection('alerts')}>
+                    <span>⚑ Alert: {metricLabel(a.metric)} {a.op} {a.threshold} (now {a.value})</span>
+                    <span className="issue-arrow">→ ALERTS</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {deltas&&Object.keys(deltas).length>0&&(
+              <div className="card mb14">
+                <div className="card-title"><div className="dot"/>Changes since last refresh</div>
+                <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
+                  {Object.entries(deltas).map(([k,v])=>(
+                    <div key={k} style={{fontSize:12,color:'var(--gray-300)'}}>
+                      {({total_subnets:'Total subnets',total_zones:'Total zones',total_leases:'Total leases'}[k])||metricLabel(k)}:{' '}
+                      <span style={{fontWeight:700,color:v>0?'#EF4444':'#10B981'}}>{v>0?('▲ +'+v):('▼ '+v)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {critSubs.length>0&&(
+              <div className="alert mb20">
+                ⚠ {critSubs.length} subnet{critSubs.length>1?'s':''} at ≥90% utilization: {critSubs.map(s=>s.name).slice(0,3).join(', ')}{critSubs.length>3?'…':''}
+              </div>
+            )}
+            <div className="bento">
+            {overviewOrder.map(id=>{
+              if(id==='kpis') return (
+                <div key="kpis" {...wrapProps('kpis','b-full')} style={{position:'relative'}}>
+                  <div style={{position:'absolute',top:-2,right:2,zIndex:2}}><DragHandle id="kpis"/></div>
+                  <div className="g4">
+                    <GaugeCard value={critSubs.length}  max={subnets.length}   label="Critical Subnets" sub={`of ${subnets.length} total`}    color={critSubs.length>0?'#EF4444':'#10B981'} icon="⊞" onClick={()=>setSection('ipam')}/>
+                    <GaugeCard value={onlineH.length}   max={hosts.length}     label="Hosts Online"     sub={`of ${hosts.length} total`}      color="#10B981"  icon="⊡" onClick={()=>setSection('hosts')}/>
+                    <GaugeCard value={ttlBad.length}    max={zones.length}     label="TTL Anomalies"    sub={`of ${zones.length} zones`}      color={ttlBad.length>0?'#F59E0B':'#10B981'} icon="⊕" onClick={()=>setSection('dns')}/>
+                    <GaugeCard value={activeF.length}   max={feeds.length}     label="Active Feeds"     sub={`of ${feeds.length} total`}      color="#C8C4BE"  icon="⊗" onClick={()=>setSection('threats')}/>
+                  </div>
+                </div>
+              );
+              if(id==='hosts') return (
+                <div key="hosts" {...wrapProps('hosts')}>
+                  <div className={`card${fullscreen==='hosts'?' fs':''}`}>
+                    <div className="card-title">
+                      <DragHandle id="hosts"/>
+                      <div className="dot"/>Host Status Distribution
+                      <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
+                        <VizSelect id="hosts" def="donut" opts={[['donut','Donut'],['table','Table'],['bar','Bar'],['raw','Raw']]}/>
+                        <button className="collapse-btn" style={{margin:0}} onClick={()=>toggleCollapse('hosts')} title={collapsed['hosts']?'Expand':'Collapse'}>{collapsed['hosts']?'▶':'▼'}</button>
+                        <button className="fs-btn" onClick={()=>toggleFs('hosts')} title="Fullscreen">⤢</button>
+                      </div>
+                    </div>
+                    {!collapsed['hosts']&&(()=>{
+                      const filteredH = hostFilt ? hosts.filter(h=>h.status===hostFilt) : [];
+                      const statusColor = {online:'#10B981',degraded:'#F59E0B',offline:'#64748B',error:'#EF4444',pending:'var(--teal)'};
+                      const hv=getViz('hosts','donut');
+                      const statusRows=['online','degraded','offline','error','pending']
+                        .map(st=>({status:st,count:hosts.filter(h=>h.status===st).length})).filter(r=>r.count>0);
+                      const statusColors={online:'#10B981',degraded:'#F59E0B',offline:'#64748B',error:'#EF4444',pending:'#C8C4BE'};
+                      return (
+                        <>
+                          {hv==='donut'?<>
+                          <div style={{fontSize:9,color:'var(--gray-600)',marginBottom:6,textAlign:'right'}}>Click a segment to drill down</div>
+                          <Donut hosts={hosts} filter={hostFilt} onSlice={s=>setHostFilt(f=>f===s?null:s)}/>
+                          </>:<WidgetViz data={statusRows} viz={hv==='line'?'bar':hv} columns={[{key:'status',label:'Status'},{key:'count',label:'Hosts'}]} labelKey="status" valueKey="count" rowColor={r=>statusColors[r.status]} defaultRows={6}/>}
+                          {hostFilt&&(
+                            <div className="drill-panel">
+                              <div className="drill-header">
+                                <span className="drill-title" style={{color:statusColor[hostFilt]||'var(--teal)'}}>
+                                  ⊡ {hostFilt.charAt(0).toUpperCase()+hostFilt.slice(1)} Hosts ({filteredH.length})
+                                </span>
+                                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                                  <button className="drill-see-all" onClick={()=>setSection('hosts')}>See all in Hosts tab →</button>
+                                  <button className="drill-close" onClick={()=>setHostFilt(null)}>×</button>
+                                </div>
+                              </div>
+                              <div className="scroll" style={{maxHeight:220}}>
+                                <table className="tbl">
+                                  <colgroup><col style={{width:'52%'}}/><col style={{width:'30%'}}/><col style={{width:'18%'}}/></colgroup>
+                                  <thead><tr><th>Hostname</th><th>IP</th><th>Type</th></tr></thead>
+                                  <tbody>
+                                    {filteredH.slice(0,15).map(h=>(
+                                      <tr key={h.id}>
+                                        <td style={{fontSize:11,fontWeight:500}} title={h.name}>{h.name}</td>
+                                        <td style={{fontFamily:'monospace',fontSize:10,color:'var(--gray-400)'}} title={h.ip}>{h.ip||'—'}</td>
+                                        <td style={{fontSize:10,color:'var(--gray-400)'}}>{h.type}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                                {filteredH.length>15&&<div style={{textAlign:'center',fontSize:10,color:'var(--gray-400)',marginTop:4}}>{filteredH.length-15} more → <button className="drill-see-all" onClick={()=>setSection('hosts')}>Hosts tab</button></div>}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+              );
+              if(id==='subnets') return (
+                <div key="subnets" {...wrapProps('subnets','b-wide')}>
+                  <div className={`card${fullscreen==='subnets'?' fs':''}`}>
+                    <div className="card-title">
+                      <DragHandle id="subnets"/>
+                      <div className="dot"/>Top 10 Subnets by DHCP Utilization
+                      <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
+                        <VizSelect id="subnets" def="subnetbars" opts={[['subnetbars','Bars'],['table','Table'],['line','Line'],['raw','Raw']]}/>
+                        <button className="collapse-btn" style={{margin:0}} onClick={()=>toggleCollapse('subnets')} title={collapsed['subnets']?'Expand':'Collapse'}>{collapsed['subnets']?'▶':'▼'}</button>
+                        <button className="fs-btn" onClick={()=>toggleFs('subnets')} title="Fullscreen">⤢</button>
+                      </div>
+                    </div>
+                    {!collapsed['subnets']&&(()=>{
+                      const drillSub = subFilt ? subnets.find(s=>s.id===subFilt) : null;
+                      const drillLeases = drillSub ? leasesInSubnet(leases, drillSub) : [];
+                      const sv=getViz('subnets','subnetbars');
+                      const subRows=[...subnets].sort((a,b)=>b.util-a.util).slice(0,10)
+                        .map(s=>({...s, name: s.name!==s.addr?s.name:'—', addr: `${s.addr}/${s.cidr}`}));
+                      const subHasSite=subRows.some(s=>s.site&&s.site!=='–'&&s.site!=='—');
+                      const subCols=[{key:'name',label:'Subnet'},{key:'addr',label:'Network'},{key:'util',label:'Util %'},{key:'used',label:'Used'},
+                        ...(subHasSite?[{key:'site',label:'Site'}]:[])];
+                      return (
+                        <>
+                          {sv==='subnetbars'?<>
+                          <div style={{fontSize:9,color:'var(--gray-600)',marginBottom:6,textAlign:'right'}}>Click a bar to drill down</div>
+                          <SubnetBars subnets={subnets} highlight={subFilt} onBar={id=>setSubFilt(f=>f===id?null:id)}/>
+                          </>:<WidgetViz data={subRows} viz={sv}
+                            columns={subCols}
+                            labelKey="name" valueKey="util" rowColor={r=>utilColor(r.util)} defaultRows={10}/>}
+                          {drillSub&&(
+                            <div className="drill-panel">
+                              <div className="drill-header">
+                                <span className="drill-title">⊞ {drillSub.name} — {drillSub.addr}/{drillSub.cidr}</span>
+                                <button className="drill-close" onClick={()=>setSubFilt(null)}>×</button>
+                              </div>
+                              <div style={{display:'flex',gap:16,marginBottom:10,flexWrap:'wrap'}}>
+                                {[
+                                  {l:'Utilization', v:`${drillSub.util}%`, c:utilColor(drillSub.util)},
+                                  {l:'Used IPs',    v:`${drillSub.used} / ${drillSub.total}`, c:'var(--gray-200)'},
+                                  {l:'Site',        v:drillSub.site||'—', c:'var(--gray-400)'},
+                                  {l:'Leases found',v:drillLeases.length, c:'var(--teal)'},
+                                ].map((x,i)=>(
+                                  <div key={i} style={{fontSize:11}}>
+                                    <div style={{color:'var(--gray-600)',marginBottom:1,fontSize:9,textTransform:'uppercase',letterSpacing:'.08em'}}>{x.l}</div>
+                                    <div style={{color:x.c,fontWeight:700}}>{x.v}</div>
+                                  </div>
+                                ))}
+                              </div>
+                              {drillLeases.length>0?(
+                                <div className="scroll" style={{maxHeight:160}}>
+                                  <table className="tbl">
+                                    <thead><tr><th>IP Address</th><th>Hostname</th><th>State</th></tr></thead>
+                                    <tbody>
+                                      {drillLeases.slice(0,20).map((l,i)=>(
+                                        <tr key={i}>
+                                          <td style={{fontFamily:'monospace',fontSize:11}}>{l.addr}</td>
+                                          <td style={{fontSize:11,color:'var(--gray-200)'}}>{l.host||'—'}</td>
+                                          <td><span className={`badge ${l.state==='active'?'b-green':'b-gray'}`}>{l.state}</span></td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                  {drillLeases.length>20&&<div style={{textAlign:'center',fontSize:10,color:'var(--gray-400)',marginTop:4}}>{drillLeases.length-20} more — <button className="drill-see-all" onClick={()=>setSection('dhcp')}>See all in DHCP tab</button></div>}
+                                </div>
+                              ):(
+                                <div style={{fontSize:11,color:'var(--gray-400)'}}>No lease data loaded for this subnet. <button className="drill-see-all" onClick={()=>setSection('ipam')}>View in IPAM tab →</button></div>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+              );
+              if(id==='ttl') return (
+                <div key="ttl" {...wrapProps('ttl','b-wide')}>
+                  <div className={`card${fullscreen==='ttl'?' fs':''}`}>
+                    <div className="card-title">
+                      <DragHandle id="ttl"/>
+                      <div className="dot" style={{background:'#F59E0B'}}/>Zones with TTL Issues
+                      <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
+                        <VizSelect id="ttl"/>
+                        <button className="collapse-btn" style={{margin:0}} onClick={()=>toggleCollapse('ttl')} title={collapsed['ttl']?'Expand':'Collapse'}>{collapsed['ttl']?'▶':'▼'}</button>
+                        <button className="fs-btn" onClick={()=>toggleFs('ttl')} title="Fullscreen">⤢</button>
+                      </div>
+                    </div>
+                    {!collapsed['ttl']&&(getViz('ttl')==='table'
+                      ?<TTLTable zones={zones}/>
+                      :<WidgetViz data={zones.filter(z=>z.anomaly)} viz={getViz('ttl')}
+                        columns={[{key:'fqdn',label:'Zone'},{key:'view',label:'View'},{key:'ttl',label:'TTL'},{key:'neg_ttl',label:'Neg TTL'},{key:'records',label:'Records'}]}
+                        labelKey="fqdn" valueKey="ttl" defaultRows={10}/>)}
+                  </div>
+                </div>
+              );
+              if(id==='audit') return (
+                <div key="audit" {...wrapProps('audit','b-wide')}>
+                  <div className={`card${fullscreen==='audit'?' fs':''}`}>
+                    <div className="card-title">
+                      <DragHandle id="audit"/>
+                      <div className="dot"/>Recent Audit Activity
+                      <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
+                        <VizSelect id="audit"/>
+                        <button className="collapse-btn" style={{margin:0}} onClick={()=>toggleCollapse('audit')} title={collapsed['audit']?'Expand':'Collapse'}>{collapsed['audit']?'▶':'▼'}</button>
+                        <button className="fs-btn" onClick={()=>toggleFs('audit')} title="Fullscreen">⤢</button>
+                      </div>
+                    </div>
+                    {!collapsed['audit']&&(getViz('audit')==='table'
+                      ?<AuditTable logs={auditLogs} limit={rl('audit-ov',10)}/>
+                      :(()=>{
+                        const cnt=auditLogs.reduce((a,l)=>{a[l.action]=(a[l.action]||0)+1;return a},{});
+                        const actRows=Object.entries(cnt).map(([action,count])=>({action,count}));
+                        return <WidgetViz data={getViz('audit')==='raw'?auditLogs:actRows} viz={getViz('audit')}
+                          columns={[{key:'action',label:'Action'},{key:'count',label:'Events'}]}
+                          labelKey="action" valueKey="count" rowColor={r=>actionColor(r.action)} defaultRows={10}/>;
+                      })())}
+                  </div>
+                </div>
+              );
+              if(id==='pols') return (
+                <div key="pols" {...wrapProps('pols')}>
+                  <div className={`card${fullscreen==='pols'?' fs':''}`}>
+                    <div className="card-title">
+                      <DragHandle id="pols"/>
+                      <div className="dot" style={{background:'#C8C4BE'}}/>Security Policies
+                      <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
+                        <VizSelect id="pols" def="panel" opts={[['panel','Panel'],['table','Table'],['bar','Bar'],['raw','Raw']]}/>
+                        <button className="collapse-btn" style={{margin:0}} onClick={()=>toggleCollapse('pols')} title={collapsed['pols']?'Expand':'Collapse'}>{collapsed['pols']?'▶':'▼'}</button>
+                        <button className="fs-btn" onClick={()=>toggleFs('pols')} title="Fullscreen">⤢</button>
+                      </div>
+                    </div>
+                    {!collapsed['pols']&&(getViz('pols','panel')==='panel'
+                      ?<PoliciesPanel policies={secPolicies}/>
+                      :<WidgetViz data={secPolicies} viz={getViz('pols','panel')}
+                        columns={[{key:'name',label:'Policy'},{key:'action',label:'Action'},{key:'rules',label:'Rules'},{key:'active',label:'Active',render:p=>p.active?'Yes':'No'}]}
+                        labelKey="name" valueKey="rules" defaultRows={10}/>)}
+                  </div>
+                </div>
+              );
+              if(id==='feeds') return (
+                <div key="feeds" {...wrapProps('feeds','b-wide')}>
+                  <div className={`card${fullscreen==='feeds'?' fs':''}`}>
+                    <div className="card-title">
+                      <DragHandle id="feeds"/>
+                      <div className="dot" style={{background:'#EF4444'}}/>Top Threat Feeds by Severity
+                      <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
+                        <VizSelect id="feeds"/>
+                        <button className="collapse-btn" style={{margin:0}} onClick={()=>toggleCollapse('feeds')} title={collapsed['feeds']?'Expand':'Collapse'}>{collapsed['feeds']?'▶':'▼'}</button>
+                        <button className="fs-btn" onClick={()=>toggleFs('feeds')} title="Fullscreen">⤢</button>
+                      </div>
+                    </div>
+                    {!collapsed['feeds']&&(getViz('feeds')==='table'
+                      ?<FeedsTable feeds={feeds}/>
+                      :<WidgetViz data={[...feeds].sort((a,b)=>b.entries-a.entries)} viz={getViz('feeds')}
+                        columns={[{key:'name',label:'Feed'},{key:'cat',label:'Category'},{key:'level',label:'Level'},{key:'entries',label:'Entries'}]}
+                        labelKey="name" valueKey="entries" rowColor={r=>levelColor(r.level)} defaultRows={10}/>)}
+                  </div>
+                </div>
+              );
+              return null;
+            })}
+            </div>
+          </>
+        )}
+
+        {/* ── IPAM ── */}
+        {section==='ipam'&&(
+          <div className="card">
+            <div className="card-title"><div className="dot"/>All Subnets — DHCP Utilization ({s_subnets.length}{sq&&` of ${subnets.length}`})</div>
+            <RowLimitBar limit={rl('ipam')} setLimit={v=>setRl('ipam',v)}/>
+              <div style={{textAlign:'right',marginBottom:6}}>
+                <button className="refresh-btn" style={{fontSize:10,padding:'4px 10px'}}
+                  onClick={()=>downloadCSV('subnets.csv',[...s_subnets].sort((a,b)=>b.util-a.util),[
+                    {key:'name',label:'Name'},{key:'addr',label:'Address'},{key:'cidr',label:'CIDR'},
+                    {key:'used',label:'Used'},{key:'total',label:'Total'},{key:'util',label:'Util%'},{key:'site',label:'Site'}
+                  ])}>⬇ Export CSV</button>
+              </div>
+              <div className="chip-bar">
+                {[
+                  {label:'All', val:null, count:s_subnets.length},
+                  {label:'Critical ≥90%', val:'critical', count:s_subnets.filter(s=>s.util>=90).length},
+                  {label:'Warning 75–89%', val:'warning', count:s_subnets.filter(s=>s.util>=75&&s.util<90).length},
+                  {label:'Healthy <75%', val:'healthy', count:s_subnets.filter(s=>s.util<75).length},
+                ].map(c=>(
+                  <button key={c.val} className={`chip${ipamChip===c.val?' on':''}`}
+                    onClick={()=>setIpamChip(c.val)}>
+                    {c.label} <span style={{opacity:.6}}>({c.count})</span>
+                  </button>
+                ))}
+              </div>
+            <IPAMTable subnets={s_subnets} ipamChip={ipamChip} rowLimit={rl('ipam')} leaseCt={leaseCt}/>
+          </div>
+        )}
+
+        {/* ── DHCP ── */}
+        {section==='dhcp'&&(
+          <>
+            <div className="g3 mb20">
+              {[
+                {v:s_leases.filter(l=>l.state==='active').length, l:'Active Leases',  c:'var(--teal)'},
+                {v:s_leases.filter(l=>l.state==='expired').length,l:'Expired Leases', c:'var(--amber)'},
+                {v:Object.keys(leaseCt).length,                   l:'Subnets w/ Leases',c:'var(--gray-200)'},
+              ].map((x,i)=>(
+                <div key={i} className="card" style={{textAlign:'center'}}>
+                  <div style={{fontSize:30,fontWeight:800,color:x.c}}>{x.v}</div>
+                  <div style={{fontSize:10,color:'var(--gray-400)',marginTop:4,textTransform:'uppercase',letterSpacing:'.1em'}}>{x.l}</div>
+                </div>
+              ))}
+            </div>
+            <div className="card">
+              <div className="card-title"><div className="dot"/>DHCP Leases{sq?` — filtered (${s_leases.length})`:` (showing ${rl('dhcp')} of ${s_leases.length})`}</div>
+              <RowLimitBar limit={rl('dhcp')} setLimit={v=>setRl('dhcp',v)}/>
+              <div className="scroll" style={{maxHeight:480}}>
+                <table className="tbl">
+                  <thead><tr><th>IP Address</th><th>Hostname</th><th>Subnet</th><th>State</th></tr></thead>
+                  <tbody>
+                    {s_leases.slice(0,rl('dhcp')).map(l=>(
+                      <tr key={l.addr}>
+                        <td style={{fontFamily:'monospace',fontSize:11}}>{l.addr}</td>
+                        <td style={{fontSize:11,color:'var(--gray-200)'}}>{l.host}</td>
+                        <td style={{fontSize:11,color:'var(--gray-400)'}}>{l.subnet}</td>
+                        <td><span className={`badge ${l.state==='active'?'b-green':'b-gray'}`}>{l.state}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── DNS ── */}
+        {section==='dns'&&(
+          <>
+            <div className="g3 mb20">
+              {[
+                {v:dnsViews.length,  l:'DNS Views',     c:'var(--teal)'},
+                {v:zones.length,     l:'Auth Zones',    c:'var(--gray-200)'},
+                {v:ttlBad.length,    l:'TTL Anomalies', c:'var(--amber)'},
+              ].map((x,i)=>(
+                <div key={i} className="card" style={{textAlign:'center'}}>
+                  <div style={{fontSize:30,fontWeight:800,color:x.c}}>{x.v}</div>
+                  <div style={{fontSize:10,color:'var(--gray-400)',marginTop:4,textTransform:'uppercase',letterSpacing:'.1em'}}>{x.l}</div>
+                </div>
+              ))}
+            </div>
+            <div className="g2">
+              <div className="card">
+                <div className="card-title"><div className="dot" style={{background:'#F59E0B'}}/>Zones with TTL Issues</div>
+                <TTLTable zones={s_zones}/>
+                {(()=>{
+                  const drillZone = zoneFilt ? (s_zones.find(z=>z.id===zoneFilt)||zones.find(z=>z.id===zoneFilt)) : null;
+                  return drillZone&&(
+                    <div className="drill-panel">
+                      <div className="drill-header">
+                        <span className="drill-title" style={{fontFamily:'monospace'}}>⊕ {drillZone.fqdn}</span>
+                        <button className="drill-close" onClick={()=>setZoneFilt(null)}>×</button>
+                      </div>
+                      <div style={{display:'flex',gap:20,flexWrap:'wrap'}}>
+                        {[
+                          {l:'View', v:drillZone.view},
+                          {l:'TTL', v:drillZone.ttl+'s', c:drillZone.ttl<60||drillZone.ttl>86400?'#FCA5A5':'var(--gray-200)'},
+                          {l:'Neg TTL', v:drillZone.neg_ttl+'s', c:drillZone.neg_ttl>3600?'#FCD34D':'var(--gray-200)'},
+                          {l:'Records', v:drillZone.records},
+                          {l:'Anomaly', v:drillZone.anomaly?'Yes':'No', c:drillZone.anomaly?'#FCA5A5':'#10B981'},
+                        ].map((x,i)=>(
+                          <div key={i} style={{fontSize:11}}>
+                            <div style={{color:'var(--gray-600)',fontSize:9,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:2}}>{x.l}</div>
+                            <div style={{color:x.c||'var(--gray-200)',fontWeight:600}}>{x.v}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {drillZone.anomaly&&drillZone.issues.length>0&&(
+                        <div style={{marginTop:8,display:'flex',gap:5,flexWrap:'wrap'}}>
+                          {drillZone.issues.map((iss,i)=><span key={i} className={`badge ${iss.includes('High')||iss.includes('Too High')?'b-amber':'b-red'}`}>{iss}</span>)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+              <div className="card">
+                <div className="card-title"><div className="dot"/>Top NXDOMAINs</div>
+                <NXProxy zones={s_zones}/>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── HOSTS ── */}
+        {section==='hosts'&&(
+          <div className="g2">
+            <div className="card">
+              <div className="card-title"><div className="dot"/>Status Breakdown</div>
+              <Donut hosts={hosts} filter={hostFilt} onSlice={s=>setHostFilt(f=>f===s?null:s)}/>
+              {hostFilt&&<div style={{textAlign:'center',fontSize:11,color:'var(--teal)',marginTop:8}}>Filtered: <b>{hostFilt}</b> — click segment to clear</div>}
+            </div>
+            <div className="card">
+              <div className="card-title"><div className="dot"/>Host List {hostFilt&&`— ${hostFilt} (${filtHosts.length})`}</div>
+              <RowLimitBar limit={rl('hosts')} setLimit={v=>setRl('hosts',v)}/>
+              <div className="chip-bar">
+                {['online','degraded','offline','error','pending'].map(st=>{
+                  const cnt=hosts.filter(h=>h.status===st).length;
+                  if(!cnt) return null;
+                  const colors={online:'#10B981',degraded:'#F59E0B',offline:'#64748B',error:'#EF4444',pending:'var(--teal)'};
+                  return (
+                    <button key={st} className={`chip${hostChip===st?' on':''}`}
+                      style={hostChip===st?{borderColor:colors[st],color:colors[st]}:{}}
+                      onClick={()=>setHostChip(h=>h===st?null:st)}>
+                      {st} ({cnt})
+                    </button>
+                  );
+                })}
+                {hostChip&&<button className="chip" onClick={()=>setHostChip(null)}>✕ clear</button>}
+              </div>
+              <HostsTable hosts={filtHosts} rowLimit={rl('hosts')}/>
+            </div>
+          </div>
+        )}
+
+        {/* ── SECURITY ── */}
+        {section==='security'&&(
+          <div className="card">
+            <div className="card-title"><div className="dot"/>Security Policies ({s_policies.length}{sq&&` of ${secPolicies.length}`})</div>
+            <PoliciesPanel policies={s_policies}/>
+          </div>
+        )}
+
+        {/* ── THREATS ── */}
+        {section==='threats'&&(
+          <div className="card">
+            <div className="card-title"><div className="dot" style={{background:'#EF4444'}}/>All Threat Feeds by Severity{sq&&` (${s_feeds.length} of ${feeds.length})`}</div>
+            <RowLimitBar limit={rl('threats')} setLimit={v=>setRl('threats',v)}/>
+            <FeedsTable feeds={s_feeds.slice(0,rl('threats'))}/>
+          </div>
+        )}
+
+        {/* ── AUDIT ── */}
+        {section==='audit'&&(
+          <div className="card">
+            <div className="card-title"><div className="dot"/>Audit Log — {sq?`${s_logs.length} of `:'Last '}{auditLogs.length} Entries</div>
+            <RowLimitBar limit={rl('audit')} setLimit={v=>setRl('audit',v)}/>
+            <AuditTable logs={s_logs} limit={rl('audit')}/>
+          </div>
+        )}
+
+        {/* ── DNS ANALYTICS ── */}
+        {section==='dns-analytics'&&(
+          <DnsAnalyticsPanel data={dnsAnalytics} rowLimit={rl('dns-clients')} setRowLimit={v=>setRl('dns-clients',v)}/>
+        )}
+
+        {/* ── SOC INSIGHTS ── */}
+        {section==='insights'&&(
+          <InsightsPanel data={insights} rowLimit={rl('insights')} setRowLimit={v=>setRl('insights',v)}/>
+        )}
+
+        {/* ── THREAT LOOKUP ── */}
+        {section==='alerts'&&(
+          <AlertsPanel data={data} rules={alertRules} setRules={setAlertRules}/>
+        )}
+        {section==='threat-lookup'&&(
+          <div className="card">
+            <div className="card-title"><div className="dot" style={{background:'#EF4444'}}/>Entity & Threat Lookup</div>
+            <ThreatLookupPanel/>
+          </div>
+        )}
+
+        {section==='search'&&(
+          <SearchSection
+            data={data}
+            srchQ={srchQ} setSrchQ={setSrchQ}
+            srchRes={srchRes} setSrchRes={setSrchRes}
+            srching={srching} setSrching={setSrching}
+            searchHistory={searchHistory} setSearchHistory={setSearchHistory}
+          />
+        )}
+
+      </div>
+
+      {showShortcuts&&(
+        <div className="shortcut-overlay" onClick={()=>setShowShortcuts(false)}>
+          <div className="shortcut-box" onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:14,fontWeight:700,color:'var(--teal)',marginBottom:14}}>Keyboard Shortcuts</div>
+            {[
+              ['1–9','Navigate sections'],['r','Refresh data'],['/','Jump to Search'],
+              ['?','Toggle this help'],['Esc','Close panels / clear filters'],
+            ].map(([k,d])=>(
+              <div key={k} style={{display:'flex',alignItems:'center',marginBottom:8,fontSize:12}}>
+                <span className="kbd">{k}</span><span style={{color:'var(--gray-200)'}}>{d}</span>
+              </div>
+            ))}
+            <div style={{marginTop:12,fontSize:10,color:'var(--gray-600)'}}>Click anywhere to close</div>
+          </div>
+        </div>
+      )}
+      <ChatPanel
+        open={chatOpen} onClose={()=>setChatOpen(false)}
+        data={data}
+        messages={messages} setMessages={setMessages}
+        queryMode={queryMode} setQueryMode={setQueryMode}
+        searchQuery={searchQuery} setSearchQuery={setSearchQuery}
+      />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

@@ -1,0 +1,1145 @@
+#!/usr/bin/env python3
+"""
+Infoblox NOC Dashboard — local bridge server.
+Serves index.html and proxies requests to the Infoblox portal via MCP.
+
+Usage:  python3 server.py
+Then open:  http://localhost:8080
+"""
+
+import asyncio, hmac, json, os, re, sys
+import groq as _groq
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
+from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.session import ClientSession
+
+# ── credentials (load .env if present, never hardcode tokens) ─────────────────
+_env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+if os.path.exists(_env_file):
+    with open(_env_file) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _v = _line.split("=", 1)
+                _v = _v.strip()
+                # strip matching surrounding quotes so values like
+                # INFOBLOX_API_KEY="Token x" don't keep literal quotes
+                if len(_v) >= 2 and _v[0] == _v[-1] and _v[0] in ("'", '"'):
+                    _v = _v[1:-1]
+                os.environ.setdefault(_k.strip(), _v)
+
+API_KEY  = os.environ.get("INFOBLOX_API_KEY", "")
+if not API_KEY:
+    print("ERROR: INFOBLOX_API_KEY not set.", file=sys.stderr)
+    print("  Set in environment or add to .env file:", file=sys.stderr)
+    print('  INFOBLOX_API_KEY=Token <your-token>', file=sys.stderr)
+    sys.exit(1)
+BASE_URL = os.environ.get("INFOBLOX_URL", "https://csp.infoblox.com")
+MCP_URL     = f"{BASE_URL}/mcp"
+MCP_HEADERS = {"Authorization": API_KEY}
+PORT        = int(os.environ.get("PORT", 8080))
+HOST        = os.environ.get("HOST", "localhost")  # keep loopback; for Docker publish with -p 127.0.0.1:8080:8080
+# Shared-secret for the state-changing write endpoint (/api/block-domain).
+# If unset, that write is disabled (401). Supply it via the X-Auth-Token header.
+DASHBOARD_TOKEN = os.environ.get("DASHBOARD_TOKEN", "")
+# Explicit, allowlisted block list id for /api/block-domain (no fuzzy name match).
+BLOCK_LIST_ID   = os.environ.get("BLOCK_LIST_ID", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+# LLM config — works with Groq or any OpenAI-compatible provider, no code edits.
+# LLM_API_KEY falls back to GROQ_API_KEY for back-compat.
+LLM_API_KEY  = os.environ.get("LLM_API_KEY", GROQ_API_KEY)
+LLM_MODEL    = os.environ.get("LLM_MODEL", "qwen/qwen3-32b")
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "")  # blank = Groq default endpoint
+DIR          = os.path.dirname(os.path.abspath(__file__))
+_STATIC_FILES = frozenset(os.listdir(DIR))  # cached once; avoids O(n) fs hit per request
+
+MIME = {
+    ".html": "text/html; charset=utf-8",
+    ".js":   "application/javascript",
+    ".css":  "text/css",
+    ".json": "application/json",
+}
+
+# Allowlist: Parquet table names returned by MCP are alphanumeric + _ - and .
+# (the name carries a .parquet extension, e.g. ipamsvc_ipam_subnet_get.parquet)
+_TABLE_RE = re.compile(r'^[a-zA-Z0-9_][a-zA-Z0-9_.\-]{0,127}$')
+
+# Strict FQDN validation for the block-domain write path.
+_FQDN_RE = re.compile(
+    r'^(?=.{1,253}$)([a-zA-Z0-9_](?:[a-zA-Z0-9_-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$'
+)
+
+# ── Server-side TTL cache (5 min) ────────────────────────────────────────────
+import time as _time
+_cache: dict = {}
+CACHE_TTL = 300  # seconds
+CACHE_MAX = 256  # cap entries to bound memory
+
+def _cache_key(service, endpoint, params, fetch_all):
+    return f"{service}|{endpoint}|{str(sorted((params or {}).items()))}|{fetch_all}"
+
+def _cache_get(key):
+    entry = _cache.get(key)
+    if entry and (_time.time() - entry[0]) < CACHE_TTL:
+        return entry[1]
+    return None
+
+def _cache_set(key, value):
+    # evict oldest entries when over the cap to bound memory growth
+    if len(_cache) >= CACHE_MAX and key not in _cache:
+        for _old in sorted(_cache, key=lambda k: _cache[k][0])[:len(_cache) - CACHE_MAX + 1]:
+            _cache.pop(_old, None)
+    _cache[key] = (_time.time(), value)
+
+def cache_invalidate():
+    _cache.clear()
+
+# ── CSP account switching (portal-style sandbox switch, same API key) ─────────
+# The CSP identity API lists every account the key's user can act in, and
+# /v2/session/account_switch issues a Bearer JWT scoped to the chosen account.
+# The home account always uses the long-lived Token key; other accounts use
+# the (expiring, ~1h) JWT — re-switch from the UI if it lapses.
+
+_HOME_ACCOUNT_ID = ""   # account the API key natively belongs to
+_active_account_id = ""
+_jwt_issued_at = 0.0    # when the current account JWT was minted
+_JWT_REFRESH_AFTER = 50 * 60  # re-mint before the ~1h CSP expiry
+
+def _maybe_refresh_jwt():
+    """Re-mint the account JWT before it expires so a switched session
+    doesn't silently die after ~1h. No-op on the home account."""
+    if (_active_account_id and _HOME_ACCOUNT_ID
+            and _active_account_id != _HOME_ACCOUNT_ID
+            and _time.time() - _jwt_issued_at > _JWT_REFRESH_AFTER):
+        try:
+            switch_account(_active_account_id)
+            print(f"  [info] refreshed account JWT for {_active_account_id}")
+        except Exception as e:
+            print(f"  [warn] JWT refresh failed: {e}", file=sys.stderr)
+
+def _csp_json(path: str, body: dict | None = None) -> dict:
+    """Small sync helper for CSP identity endpoints. Always authenticates with
+    the original long-lived key so an expired account JWT can't lock us out."""
+    from urllib.request import urlopen, Request
+    data = json.dumps(body).encode() if body is not None else None
+    req = Request(f"{BASE_URL}{path}", data=data,
+                  headers={"Authorization": API_KEY,
+                           "Content-Type": "application/json"})
+    with urlopen(req, timeout=15) as r:
+        return json.loads(r.read())
+
+def list_accounts() -> dict:
+    global _HOME_ACCOUNT_ID, _active_account_id
+    accounts = [{"id": a.get("id", ""), "name": a.get("name", "")}
+                for a in _csp_json("/v2/current_user/accounts").get("results", [])
+                if a.get("state", "active") == "active"]
+    accounts.sort(key=lambda a: a["name"].lower())
+    if not _HOME_ACCOUNT_ID:
+        # resolve once: the account the raw API key is bound to
+        try:
+            home = _csp_json("/v2/current_user").get("result", {}).get("account_id", "")
+        except Exception:
+            home = ""
+        _HOME_ACCOUNT_ID = home or (accounts[0]["id"] if accounts else "")
+        if not _active_account_id:
+            _active_account_id = _HOME_ACCOUNT_ID
+    return {"accounts": accounts, "active": _active_account_id}
+
+def switch_account(account_id: str) -> dict:
+    """Switch the MCP proxy to another CSP account the user belongs to."""
+    global _active_account_id, _jwt_issued_at
+    known = {a["id"]: a["name"] for a in list_accounts()["accounts"]}
+    if account_id not in known:
+        return {"ok": False, "error": "unknown account"}
+    if account_id == _HOME_ACCOUNT_ID:
+        MCP_HEADERS["Authorization"] = API_KEY  # long-lived key beats a JWT
+    else:
+        resp = _csp_json("/v2/session/account_switch", {"id": account_id})
+        jwt = resp.get("jwt") or resp.get("result", {}).get("jwt", "")
+        if not jwt:
+            return {"ok": False, "error": "switch failed (no jwt in response)"}
+        MCP_HEADERS["Authorization"] = f"Bearer {jwt}"
+        _jwt_issued_at = _time.time()
+    _active_account_id = account_id
+    cache_invalidate()  # cached rows belong to the previous tenant
+    return {"ok": True, "active": account_id, "name": known[account_id]}
+
+# ── MCP helpers ───────────────────────────────────────────────────────────────
+
+def _tool_text(result) -> str:
+    return result.content[0].text if result.content else "{}"
+
+def _columnar_to_dicts(raw: dict) -> list:
+    """Convert DuckDB columnar result {columns, data} to list of dicts."""
+    inner = raw.get("results", raw)
+    cols = inner.get("columns", [])
+    rows = inner.get("data", [])
+    return [dict(zip(cols, row)) for row in rows]
+
+def _results(data) -> list:
+    """Pass-through: _mcp_get now returns a list directly."""
+    if isinstance(data, list):
+        return data
+    for key in ("data", "results", "items"):
+        val = data.get(key)
+        if isinstance(val, list):
+            return val
+    return []
+
+async def _query_all_rows(session, table: str, row_count: int, label: str) -> list:
+    """Page through stored Parquet 100 rows at a time — MCP caps inline data at 100."""
+    PAGE = 100
+    rows: list = []
+    offset = 0
+    while offset < row_count:
+        try:
+            r = await asyncio.wait_for(
+                session.call_tool("infoblox-portal_query_stored_data", {
+                    "task_description": f"Read rows {offset}–{offset+PAGE} from {label}",
+                    "sql_query": f'SELECT * FROM "{table}" LIMIT {PAGE} OFFSET {offset}',
+                }), timeout=30)
+        except asyncio.TimeoutError:
+            print(f"  [warn] MCP timeout: {label} (step 2 @ offset {offset})", file=sys.stderr)
+            break
+        batch = _columnar_to_dicts(json.loads(_tool_text(r)))
+        if not batch:
+            break
+        rows.extend(batch)
+        offset += PAGE
+    return rows
+
+async def _mcp_get(session, service: str, endpoint: str,
+                   params: dict | None = None, fetch_all: bool = False) -> list:
+    ck = _cache_key(service, endpoint, params, fetch_all)
+    cached = _cache_get(ck)
+    if cached is not None:
+        return cached
+    # Step 1: store data as Parquet
+    args = {
+        "task_description": f"Fetch {service} {endpoint} for NOC dashboard",
+        "service_name": service,
+        "endpoint": endpoint,
+        "fetch_all": fetch_all,
+    }
+    if params:
+        args["query_params"] = params
+    try:
+        r1 = await asyncio.wait_for(
+            session.call_tool("infoblox-portal_make_get_request", args), timeout=30)
+    except asyncio.TimeoutError:
+        print(f"  [warn] MCP timeout: {service}/{endpoint} (step 1)", file=sys.stderr)
+        return []
+    try:
+        meta = json.loads(_tool_text(r1))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(meta, dict):
+        return []
+    table = meta.get("table_name", "")
+    if not table or not _TABLE_RE.match(table) or meta.get("row_count", 0) == 0:
+        return []
+    # Step 2: page through stored Parquet (MCP caps inline rows at 100)
+    try:
+        result = await _query_all_rows(session, table, meta.get("row_count", 0),
+                                       f"{service}/{endpoint}")
+        _cache_set(ck, result)
+        return result
+    except Exception as e:
+        print(f"  [warn] _mcp_get {service}/{endpoint}: {e}", file=sys.stderr)
+        return []
+
+async def _mcp_query_cube(session, cube: str, measures: list,
+                           dimensions: list | None = None,
+                           time_dims: list | None = None,
+                           order: dict | None = None,
+                           limit: int | None = None) -> dict:
+    args = {
+        "task_description": f"Query {cube} for NOC dashboard analytics",
+        "cube_name": cube,
+        "measures": measures,
+    }
+    if dimensions: args["dimensions"] = dimensions
+    if time_dims:  args["time_dimensions"] = time_dims
+    if order:      args["order"] = order
+    if limit:      args["limit"] = limit
+    try:
+        r1 = await asyncio.wait_for(
+            session.call_tool("infoblox-portal_query_cube", args), timeout=30)
+    except asyncio.TimeoutError:
+        print(f"  [warn] MCP timeout: {cube} (step 1)", file=sys.stderr)
+        return {}
+    try:
+        meta = json.loads(_tool_text(r1))
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(meta, dict):
+        return {}
+    table = meta.get("table_name", "")
+    if not table or not _TABLE_RE.match(table) or meta.get("row_count", 0) == 0:
+        return {}
+    try:
+        # cube columns use __ separator; convert back to . for caller consistency
+        rows = await _query_all_rows(session, table, meta.get("row_count", 0), f"{cube} cube")
+        return {"data": [{k.replace("__", ".", 1): v for k, v in r.items()} for r in rows]}
+    except Exception as e:
+        print(f"  [warn] _mcp_query_cube {cube}: {e}", file=sys.stderr)
+        return {}
+
+async def _mcp_search(session, query: str) -> list:
+    query = (query or "")[:256]  # cap length of user-controlled filter
+    result = await session.call_tool(
+        "infoblox-portal_network_entity_search", {"query": query}
+    )
+    try:
+        data = json.loads(_tool_text(result))
+        return data if isinstance(data, list) else _results(data)
+    except json.JSONDecodeError:
+        return []
+
+# ── data normalisation ────────────────────────────────────────────────────────
+
+def norm_subnets(raw):
+    out = []
+    for s in raw:
+        u = s.get("utilization") or s.get("dhcp_utilization") or {}
+        total = int(u.get("total") or u.get("total_count") or 0)
+        used  = int(u.get("used")  or u.get("used_count")  or 0)
+        pct   = round(used / total * 100) if total else 0
+        tags  = s.get("tags") or {}
+        out.append({
+            "id":   s.get("id", ""),
+            "name": s.get("name") or s.get("address", ""),
+            "addr": s.get("address", ""),
+            "cidr": s.get("cidr", 0),
+            "total": total,
+            "used":  used,
+            "util":  pct,
+            "site":  tags.get("site") or tags.get("location") or "–",
+        })
+    return out
+
+def norm_leases(raw):
+    out = []
+    for l in raw:
+        state = l.get("state", "")
+        mapped = "active" if state in ("used", "issued", "dynamic") else "expired"
+        hostname = l.get("hostname") or l.get("client_id", "")
+        hostname = hostname.strip('"')
+        out.append({
+            "addr":      l.get("address", ""),
+            "host":      hostname,
+            "subnet":    l.get("subnet_name") or "",
+            "subnet_id": "",
+            "state":     mapped,
+        })
+    return out
+
+def norm_zones(raw, view_map=None):
+    vm = view_map or {}
+    out = []
+    for z in raw:
+        za      = z.get("zone_authority") or {}
+        ttl     = int(za.get("default_ttl") or 3600)
+        neg_ttl = int(za.get("negative_ttl") or 3600)
+        fqdn    = z.get("fqdn") or z.get("name", "")
+        view_ref = z.get("view", "")
+        view    = vm.get(view_ref) or view_ref.split("/")[-1][:12] or "default"
+        issues  = []
+        if ttl < 60:       issues.append("TTL Too Low")
+        if ttl > 86400:    issues.append("TTL Too High")
+        if neg_ttl > 3600: issues.append("High Neg-TTL")
+        out.append({
+            "id":      z.get("id", ""),
+            "fqdn":    fqdn,
+            "view":    view,
+            "ttl":     ttl,
+            "neg_ttl": neg_ttl,
+            "records": 0,
+            "issues":  issues,
+            "anomaly": len(issues) > 0,
+        })
+    return out
+
+def norm_views(raw):
+    return [{"id": v.get("id",""), "name": v.get("name",""), "comment": v.get("comment","")} for v in raw]
+
+def norm_hosts(raw):
+    STATUS_MAP = {
+        "online": "online", "active": "online",
+        "degraded": "degraded",
+        "offline": "offline", "inactive": "offline",
+        "error": "error",
+        "pending": "pending", "awaiting_provisioning": "pending",
+    }
+    TYPE_MAP = {
+        "dns": "DNS", "dhcp": "DHCP", "ntp": "NTP",
+        "dfp": "Forwarder", "cdc": "Connector",
+    }
+    HOST_TYPE_MAP = {
+        "bloxone_appliance": "Appliance", "bloxone_vm": "VM",
+        "k8s": "K8s", "cloud": "Cloud",
+    }
+    out = []
+    for h in raw:
+        raw_status = (h.get("composite_status") or
+                      (h.get("connectivity_monitor") or {}).get("status") or
+                      "pending")
+        status = STATUS_MAP.get(raw_status.lower(), "pending")
+        configs = h.get("configs") or []
+        svc_types = [c.get("service_type","") for c in configs if c.get("service_type")]
+        htype = TYPE_MAP.get(svc_types[0], None) if svc_types else None
+        if not htype:
+            htype = HOST_TYPE_MAP.get((h.get("host_type") or "").lower(), "Host")
+        out.append({
+            "id":     h.get("id", ""),
+            "name":   h.get("display_name") or h.get("name", ""),
+            "ip":     h.get("ip_address") or "",
+            "type":   htype,
+            "status": status,
+        })
+    return out
+
+def norm_policies(raw):
+    out = []
+    for p in raw:
+        action_raw = p.get("default_action") or p.get("action") or "action_allow"
+        action = action_raw.replace("action_", "")
+        rules = len(p.get("rules") or p.get("rule_names") or p.get("network_lists") or [])
+        out.append({
+            "id":      str(p.get("id","")),
+            "name":    p.get("name",""),
+            "action":  action,
+            "rules":   rules,
+            "created": (p.get("created_time") or "")[:10],
+            "active":  not p.get("is_default", False),
+        })
+    return out
+
+def norm_feeds(raw):
+    LEVELS = {"high": "critical", "medium": "high", "low": "medium"}
+    out = []
+    for f in raw:
+        conf_level = f.get("confidence_level", "MEDIUM").lower()
+        threat_level = f.get("threat_level", "").lower() or LEVELS.get(conf_level, "medium")
+        out.append({
+            "id":      f.get("id",""),
+            "name":    f.get("name",""),
+            "level":   threat_level,
+            "conf":    conf_level if conf_level in ("high","medium","low") else "medium",
+            "cat":     f.get("type") or f.get("category","Mixed"),
+            "entries": f.get("item_count") or f.get("items_described") or 0,
+            "active":  f.get("is_default") or not f.get("is_default", False),
+        })
+    return out
+
+def norm_audit(raw):
+    return [{
+        "id":       l.get("id",""),
+        "ts":       l.get("created_at") or "",
+        "user":     l.get("user_name") or l.get("user_email") or l.get("subject_type",""),
+        "action":   (l.get("action") or l.get("http_method") or "READ").upper(),
+        "resource": l.get("resource_type") or "",
+        "result":   "failure" if int(l.get("http_code", 200)) >= 400 else "success",
+    } for l in raw]
+
+# ── fetch all dashboard data ──────────────────────────────────────────────────
+
+async def _fetch_dashboard_async() -> dict:
+    async with streamablehttp_client(MCP_URL, headers=MCP_HEADERS) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            print("  MCP session established, fetching 8 data sources in parallel…")
+
+            (subnets_d, leases_d, views_d, zones_d,
+             hosts_d, policies_d, feeds_d, audit_d) = await asyncio.gather(
+                _mcp_get(session, "Ipamsvc", "/ipam/subnet",
+                         {"_fields": "id,name,address,cidr,utilization,tags"}, fetch_all=True),
+                _mcp_get(session, "DhcpLeases", "/dhcp/lease",
+                         {"_fields": "address,hostname,state,client_id"}, fetch_all=True),
+                _mcp_get(session, "DnsConfig", "/dns/view",
+                         {"_fields": "id,name,comment"}, fetch_all=True),
+                _mcp_get(session, "DnsConfig", "/dns/auth_zone",
+                         {"_fields": "id,fqdn,view,zone_authority,primary_type"}, fetch_all=True),
+                _mcp_get(session, "Infrastructure", "/detail_hosts",
+                         {"_fields": "id,display_name,ip_address,composite_status,host_type,configs"}, fetch_all=True),
+                _mcp_get(session, "Atcfw", "/security_policies",
+                         {"_fields": "id,name,default_action,rule_names,network_lists,created_time,is_default"}, fetch_all=True),
+                _mcp_get(session, "Atcfw", "/named_lists",
+                         {"_fields": "id,name,confidence_level,threat_level,type,item_count"}, fetch_all=True),
+                _mcp_get(session, "AuditLog", "/logs",
+                         {"_limit": 100, "_order_by": "created_at desc"}),
+            )
+
+            view_map = {v.get("id", ""): v.get("name", "") for v in _results(views_d)}
+
+            subnets  = norm_subnets(_results(subnets_d))
+            leases   = norm_leases(_results(leases_d))
+            views    = norm_views(_results(views_d))
+            zones    = norm_zones(_results(zones_d), view_map)
+            hosts    = norm_hosts(_results(hosts_d))
+            policies = norm_policies(_results(policies_d))
+            feeds    = norm_feeds(_results(feeds_d))
+            audit    = norm_audit(_results(audit_d))
+
+            print(f"  subnets={len(subnets)} leases={len(leases)} zones={len(zones)} "
+                  f"hosts={len(hosts)} policies={len(policies)} feeds={len(feeds)} audit={len(audit)}")
+
+            return {
+                "subnets":    subnets,
+                "leases":     leases,
+                "dnsViews":   views,
+                "zones":      zones,
+                "hosts":      hosts,
+                "secPolicies": policies,
+                "feeds":      feeds,
+                "auditLogs":  audit,
+            }
+
+def fetch_dashboard_data() -> dict:
+    print("Fetching dashboard data via MCP…")
+    return asyncio.run(_fetch_dashboard_async())
+
+# ── NL query handler ──────────────────────────────────────────────────────────
+
+_AI_SYSTEM = """You are a network analyst for an Infoblox NOC dashboard. Call tools to fetch live data, then answer.
+
+RULES:
+1. Always call the right tool(s) before answering. Never fabricate data.
+2. Your FINAL response must be ONLY this JSON (no other text before or after):
+   {"answer": "text with \\n and • bullets", "suggestions": ["q1","q2","q3"]}
+3. suggestions must be PLAIN ENGLISH QUESTIONS a human would type — never tool names like get_dns or search_entity.
+   GOOD: "show me DNS zones for test.holland"
+   BAD:  "get_dns" or "search_entity with query=sholland"
+4. Always include 3-5 suggestions.
+5. Ambiguous term? Try multiple search_entity calls, get_subnets, get_dns, get_audit_logs.
+6. No data found? Suggest alternatives as plain English questions.
+
+Output the JSON object and nothing else."""
+
+_TOOLS = [
+    {"type": "function", "function": {
+        "name": "search_entity",
+        "description": "Search for any network entity by name, IP address, hostname, or subnet CIDR",
+        "parameters": {"type": "object", "required": ["query"],
+            "properties": {"query": {"type": "string", "description": "Name, IP, hostname, or subnet to find"}}},
+    }},
+    {"type": "function", "function": {
+        "name": "get_subnets",
+        "description": "Get IPAM subnets with utilization. Use address param for a specific subnet.",
+        "parameters": {"type": "object",
+            "properties": {
+                "address": {"type": "string", "description": "Filter by subnet address, e.g. '192.168.100.0'"},
+                "cidr":    {"type": "integer", "description": "CIDR prefix length, e.g. 24"},
+            }},
+    }},
+    {"type": "function", "function": {
+        "name": "get_hosts",
+        "description": "Get infrastructure hosts with status (online/offline/error/degraded)",
+        "parameters": {"type": "object",
+            "properties": {"status": {"type": "string", "description": "Filter: online, offline, error, or degraded"}}},
+    }},
+    {"type": "function", "function": {
+        "name": "get_dns",
+        "description": "Get DNS views and authoritative zones",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "get_dhcp_leases",
+        "description": "Get DHCP leases. Optionally filter by subnet address.",
+        "parameters": {"type": "object",
+            "properties": {"subnet": {"type": "string", "description": "Subnet prefix to filter, e.g. '192.168.100'"}}},
+    }},
+    {"type": "function", "function": {
+        "name": "get_threat_feeds",
+        "description": "Get security threat feed names and entry counts",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "get_audit_logs",
+        "description": "Get recent audit log events",
+        "parameters": {"type": "object",
+            "properties": {"limit": {"type": "integer", "description": "Number of log entries, default 20"}}},
+    }},
+    {"type": "function", "function": {
+        "name": "get_dns_analytics",
+        "description": "Get top DNS clients by query count over a time range",
+        "parameters": {"type": "object",
+            "properties": {
+                "days":  {"type": "integer", "description": "Time range in days, default 7"},
+                "limit": {"type": "integer", "description": "Number of top clients, default 10"},
+            }},
+    }},
+]
+
+_MAX_TOOL_CHARS = 3000  # cap tool results to stay under TPM limits
+
+async def _run_tool(name: str, args: dict) -> str:
+    """Execute one tool call against MCP — opens its own session to avoid anyio/httpx conflicts."""
+    print(f"  [AI tool] {name}({args})", flush=True)
+    try:
+        async with streamablehttp_client(MCP_URL, headers=MCP_HEADERS) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                if name == "search_entity":
+                    hits = await _mcp_search(session, args.get("query", ""))
+                    return json.dumps(hits[:10], default=str) if hits else "No entities found."
+
+                if name == "get_subnets":
+                    params = {"_fields": "name,address,cidr,utilization"}
+                    if args.get("address"):
+                        addr = str(args["address"])
+                        # constrain to an IP/CIDR-ish filter before forwarding upstream
+                        if re.fullmatch(r'[0-9a-fA-F:.]{1,45}(/\d{1,3})?', addr):
+                            params["address"] = addr
+                    if args.get("cidr") is not None:
+                        try:
+                            _c = int(args["cidr"])
+                            if 0 <= _c <= 128:
+                                params["cidr"] = str(_c)
+                        except (TypeError, ValueError):
+                            pass
+                    raw = await _mcp_get(session, "Ipamsvc", "/ipam/subnet", params,
+                                         fetch_all=not args.get("address"))
+                    data = norm_subnets(_results(raw))
+                    return json.dumps(data[:100], default=str) if data else "No subnet data."
+
+                if name == "get_hosts":
+                    raw = await _mcp_get(session, "Infrastructure", "/detail_hosts",
+                                         {"_fields": "display_name,ip_address,composite_status,host_type"},
+                                         fetch_all=True)
+                    data = norm_hosts(_results(raw))
+                    if args.get("status"):
+                        data = [h for h in data if h["status"] == args["status"]]
+                    return json.dumps(data[:100], default=str) if data else "No host data."
+
+                if name == "get_dns":
+                    views_d = await _mcp_get(session, "DnsConfig", "/dns/view",
+                                             {"_fields": "id,name,comment"}, fetch_all=True)
+                    zones_d = await _mcp_get(session, "DnsConfig", "/dns/auth_zone",
+                                             {"_fields": "fqdn,view,zone_authority"}, fetch_all=True)
+                    vm = {v.get("id", ""): v.get("name", "") for v in _results(views_d)}
+                    return json.dumps({
+                        "views": norm_views(_results(views_d)),
+                        "zones": norm_zones(_results(zones_d), vm)[:200],
+                    }, default=str)
+
+                if name == "get_dhcp_leases":
+                    raw = await _mcp_get(session, "DhcpLeases", "/dhcp/lease",
+                                         {"_fields": "address,hostname,state"}, fetch_all=True)
+                    data = norm_leases(_results(raw))
+                    if args.get("subnet"):
+                        data = [l for l in data if l.get("ip", "").startswith(args["subnet"])]
+                    return json.dumps(data[:200], default=str) if data else "No lease data."
+
+                if name == "get_threat_feeds":
+                    raw = await _mcp_get(session, "Atcfw", "/named_lists",
+                                         {"_fields": "name,threat_level,item_count"}, fetch_all=True)
+                    data = norm_feeds(_results(raw))
+                    return json.dumps(data, default=str) if data else "No threat feed data."
+
+                if name == "get_audit_logs":
+                    limit = int(args.get("limit", 20))
+                    raw = await _mcp_get(session, "AuditLog", "/logs",
+                                         {"_limit": limit, "_order_by": "created_at desc"})
+                    data = norm_audit(_results(raw))
+                    return json.dumps(data, default=str) if data else "No audit log data."
+
+                if name == "get_dns_analytics":
+                    cube = await _mcp_query_cube(
+                        session, "NstarDnsActivity",
+                        measures=["NstarDnsActivity.total_query_count"],
+                        dimensions=["NstarDnsActivity.device_name", "NstarDnsActivity.device_ip"],
+                        time_dims=[{"dimension": "NstarDnsActivity.timestamp",
+                                    "dateRange": f"{int(args.get('days', 7))} days"}],
+                        order={"NstarDnsActivity.total_query_count": "desc"},
+                        limit=int(args.get("limit", 10)),
+                    )
+                    rows = _results(cube)
+                    return json.dumps(rows, default=str) if rows else "No DNS analytics data."
+
+                return f"Unknown tool: {name}"
+    except Exception as e:
+        return f"Tool error: {e}"
+
+def _trim_tool_result(s: str) -> str:
+    return s[:_MAX_TOOL_CHARS] + ("…[truncated]" if len(s) > _MAX_TOOL_CHARS else "")
+
+
+async def _handle_query_async(question: str, trace: list) -> str:
+    if not LLM_API_KEY:
+        return "AI query requires LLM_API_KEY (or GROQ_API_KEY) in .env — add it and restart the server."
+
+    messages = [
+        {"role": "system", "content": _AI_SYSTEM},
+        {"role": "user",   "content": question},
+    ]
+    last = None
+    try:
+        _client_kwargs = {"api_key": LLM_API_KEY}
+        if LLM_BASE_URL:
+            _client_kwargs["base_url"] = LLM_BASE_URL
+        async with _groq.AsyncGroq(**_client_kwargs) as client:
+            for i in range(6):
+                resp = await client.chat.completions.create(
+                    model=LLM_MODEL,
+                    max_tokens=1024,
+                    messages=messages,
+                    tools=_TOOLS,
+                    tool_choice="auto",
+                )
+                last = resp.choices[0]
+                if last.finish_reason != "tool_calls":
+                    return last.message.content or '{"answer": "No content.", "suggestions": []}'
+                messages.append(last.message)
+                for tc in last.message.tool_calls:
+                    args = json.loads(tc.function.arguments or "{}")
+                    # record the tool call for the client-side trace (transparency)
+                    trace.append({"tool": tc.function.name,
+                                  "args": {k: str(v)[:80] for k, v in (args or {}).items()}})
+                    result = _trim_tool_result(await _run_tool(tc.function.name, args))
+                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+    except Exception as e:
+        err = str(e)[:300].replace('"', "'")
+        return f'{{"answer": "AI error: {err}", "suggestions": ["try again in a moment", "show network summary", "show offline hosts", "list threat feeds", "show audit logs"]}}'
+
+    return last.message.content if last else '{"answer": "No response.", "suggestions": []}'
+
+_TOOL_NAMES = frozenset(t["function"]["name"] for t in _TOOLS)
+
+def _clean_suggestions(sugs: list) -> list:
+    out = []
+    for s in sugs:
+        s = s.strip()
+        if not s:
+            continue
+        # reject bare tool names or "tool_name with ..." patterns
+        first_word = s.split()[0].rstrip("?").lower() if s.split() else ""
+        if first_word in _TOOL_NAMES or s.lower().startswith(tuple(n + " " for n in _TOOL_NAMES)):
+            continue
+        out.append(s)
+    return out[:5]
+
+def _parse_ai_response(raw: str) -> dict:
+    raw = raw.strip()
+    # Strip Qwen3 <think>...</think> reasoning blocks
+    raw = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL).strip()
+    # Strip markdown code fences
+    if raw.startswith("```"):
+        raw = re.sub(r'^```[a-z]*\n?', '', raw).rstrip('`').strip()
+    # Attempt 1: direct parse
+    try:
+        obj = json.loads(raw)
+        if isinstance(obj, dict) and "answer" in obj:
+            sugs = _clean_suggestions([s for s in obj.get("suggestions", []) if isinstance(s, str)])
+            return {"answer": str(obj["answer"]), "suggestions": sugs}
+    except (json.JSONDecodeError, ValueError):
+        pass
+    # Attempt 2: scan for last valid JSON object using raw_decode (handles arrays/nesting)
+    decoder = json.JSONDecoder()
+    last_obj = None
+    idx = 0
+    while idx < len(raw):
+        pos = raw.find('{', idx)
+        if pos == -1:
+            break
+        try:
+            obj, _ = decoder.raw_decode(raw, pos)
+            if isinstance(obj, dict) and "answer" in obj:
+                last_obj = obj
+        except (json.JSONDecodeError, ValueError):
+            pass
+        idx = pos + 1
+    if last_obj:
+        sugs = _clean_suggestions([s for s in last_obj.get("suggestions", []) if isinstance(s, str)])
+        return {"answer": str(last_obj["answer"]), "suggestions": sugs}
+    # Attempt 3: SUGGESTIONS: plain-text block
+    if "SUGGESTIONS:" in raw:
+        parts = raw.split("SUGGESTIONS:", 1)
+        sugs = [l.strip().lstrip("-•*123456789. ") for l in parts[1].strip().splitlines() if l.strip()]
+        return {"answer": parts[0].strip(), "suggestions": sugs[:5]}
+    return {"answer": raw, "suggestions": []}
+
+def handle_query(question: str) -> dict:
+    trace: list = []
+    raw = asyncio.run(_handle_query_async(question, trace))
+    out = _parse_ai_response(raw)
+    if trace:
+        out["trace"] = trace  # ordered list of {tool, args} the LLM invoked
+    return out
+
+# ── IQ Actions handler ────────────────────────────────────────────────────────
+
+async def _fetch_actions_async() -> dict:
+    async with streamablehttp_client(MCP_URL, headers=MCP_HEADERS) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            result = await session.call_tool(
+                "iq-actions_list_actions",
+                {"limit": 50, "sort_field": "last_activity", "sort_order": "desc", "format": "json"},
+            )
+            try:
+                return json.loads(_tool_text(result))
+            except json.JSONDecodeError:
+                return {"actions": [], "_raw": _tool_text(result)[:200]}
+
+def fetch_actions() -> dict:
+    return asyncio.run(_fetch_actions_async())
+
+# ── SOC Insights handler ──────────────────────────────────────────────────────
+
+async def _fetch_insights_async() -> dict:
+    async with streamablehttp_client(MCP_URL, headers=MCP_HEADERS) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            return await _mcp_query_cube(
+                session, "InsightsSummaryView",
+                measures=[
+                    "InsightsSummaryView.totalEvents",
+                    "InsightsSummaryView.totalVerifiedAssets",
+                    "InsightsSummaryView.timeSaved",
+                ],
+                dimensions=[
+                    "InsightsSummaryView.name",
+                    "InsightsSummaryView.severity",
+                    "InsightsSummaryView.currentStatus",
+                ],
+                order={"InsightsSummaryView.totalEvents": "desc"},
+                limit=20,
+            )
+
+def fetch_insights() -> dict:
+    return asyncio.run(_fetch_insights_async())
+
+# ── DNS Analytics handler ─────────────────────────────────────────────────────
+
+async def _fetch_dns_analytics_async() -> dict:
+    async with streamablehttp_client(MCP_URL, headers=MCP_HEADERS) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            vol_d, clients_d, types_d = await asyncio.gather(
+                _mcp_query_cube(session, "NstarDnsActivity",
+                    measures=["NstarDnsActivity.total_query_count"],
+                    time_dims=[{"dimension": "NstarDnsActivity.timestamp",
+                                "dateRange": "7 days", "granularity": "day"}]),
+                _mcp_query_cube(session, "NstarDnsActivity",
+                    measures=["NstarDnsActivity.total_query_count"],
+                    dimensions=["NstarDnsActivity.device_name", "NstarDnsActivity.device_ip"],
+                    time_dims=[{"dimension": "NstarDnsActivity.timestamp", "dateRange": "7 days"}],
+                    order={"NstarDnsActivity.total_query_count": "desc"}, limit=50),
+                _mcp_query_cube(session, "NstarDnsActivity",
+                    measures=["NstarDnsActivity.total_query_count"],
+                    dimensions=["NstarDnsActivity.query_type"],
+                    time_dims=[{"dimension": "NstarDnsActivity.timestamp", "dateRange": "7 days"}],
+                    order={"NstarDnsActivity.total_query_count": "desc"}, limit=10),
+            )
+            return {
+                "volume":      _results(vol_d),
+                "top_clients": _results(clients_d),
+                "query_types": _results(types_d),
+            }
+
+def fetch_dns_analytics() -> dict:
+    return asyncio.run(_fetch_dns_analytics_async())
+
+# ── Host Metrics handler ──────────────────────────────────────────────────────
+
+async def _fetch_host_metrics_async() -> dict:
+    async with streamablehttp_client(MCP_URL, headers=MCP_HEADERS) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            data = await _mcp_query_cube(
+                session, "HostMetrics",
+                measures=["HostMetrics.avg_value"],
+                dimensions=["HostMetrics.host_name", "HostMetrics.metric_name"],
+                time_dims=[{"dimension": "HostMetrics.timestamp", "dateRange": "1 hours"}],
+                order={"HostMetrics.avg_value": "desc"},
+                limit=100,
+            )
+            return {"metrics": _results(data)}
+
+def fetch_host_metrics() -> dict:
+    return asyncio.run(_fetch_host_metrics_async())
+
+# ── Threat Lookup handler ─────────────────────────────────────────────────────
+
+async def _threat_lookup_async(query: str) -> dict:
+    async with streamablehttp_client(MCP_URL, headers=MCP_HEADERS) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            hits = await _mcp_search(session, query)
+            return {"entities": hits, "query": query}
+
+def threat_lookup(query: str) -> dict:
+    return asyncio.run(_threat_lookup_async(query))
+
+# ── Block Domain handler ──────────────────────────────────────────────────────
+
+async def _block_domain_async(domain: str) -> dict:
+    # Validate the domain against a strict FQDN regex (reject anything else).
+    if not _FQDN_RE.match(domain):
+        return {"ok": False, "error": "invalid domain"}
+    # Require an explicit, allowlisted block list id from config — never fuzzy-match.
+    if not BLOCK_LIST_ID:
+        return {"ok": False, "error": "block list not configured (set BLOCK_LIST_ID)"}
+    if not _TABLE_RE.match(BLOCK_LIST_ID):
+        return {"ok": False, "error": "invalid block list id"}
+    async with streamablehttp_client(MCP_URL, headers=MCP_HEADERS) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            result = await session.call_tool("infoblox-portal_make_patch_request", {
+                "task_description": f"Block domain {domain}",
+                "service_name": "Atcfw",
+                "endpoint": f"/named_lists/{BLOCK_LIST_ID}",
+                "body": {"items_described": [{"item": domain, "description": "Blocked via NOC dashboard"}]},
+            })
+            return {"ok": True, "domain": domain, "list": BLOCK_LIST_ID}
+
+def block_domain(domain: str) -> dict:
+    return asyncio.run(_block_domain_async(domain))
+
+async def _unblock_domain_async(domain: str) -> dict:
+    """Rollback of a block: remove the domain item from the configured block list."""
+    if not _FQDN_RE.match(domain):
+        return {"ok": False, "error": "invalid domain"}
+    if not BLOCK_LIST_ID or not _TABLE_RE.match(BLOCK_LIST_ID):
+        return {"ok": False, "error": "block list not configured (set BLOCK_LIST_ID)"}
+    async with streamablehttp_client(MCP_URL, headers=MCP_HEADERS) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            await session.call_tool("infoblox-portal_make_delete_request", {
+                "task_description": f"Unblock domain {domain}",
+                "service_name": "Atcfw",
+                "endpoint": f"/named_lists/{BLOCK_LIST_ID}/items",
+                "body": {"items": [domain]},
+            })
+            return {"ok": True, "domain": domain, "list": BLOCK_LIST_ID}
+
+def unblock_domain(domain: str) -> dict:
+    return asyncio.run(_unblock_domain_async(domain))
+
+# ── HTTP handler ──────────────────────────────────────────────────────────────
+
+def _log_exc(label: str, e: Exception):
+    """Log full detail server-side; clients only ever see a generic message."""
+    import traceback
+    print(f"  [error] {label}: {e}", file=sys.stderr)
+    traceback.print_exc()
+
+class Handler(BaseHTTPRequestHandler):
+    def _authed(self) -> bool:
+        """Constant-time shared-secret check for mutating/AI endpoints."""
+        if not DASHBOARD_TOKEN:
+            return False
+        supplied = self.headers.get("X-Auth-Token", "")
+        return hmac.compare_digest(supplied, DASHBOARD_TOKEN)
+
+    def do_OPTIONS(self):
+        self._cors()
+        self.end_headers()
+
+    def do_GET(self):
+        path = self.path.split("?")[0]
+        if path.startswith("/api/") and path not in ("/api/accounts",):
+            _maybe_refresh_jwt()
+        if path == "/":
+            self._file("index.html")
+        elif path == "/api/data":
+            try:
+                self._json(fetch_dashboard_data())
+            except Exception as e:
+                _log_exc("/api/data", e)
+                self._json({"error": "internal error"}, 500)
+        elif path == "/api/actions":
+            try:
+                self._json(fetch_actions())
+            except Exception as e:
+                _log_exc("/api/actions", e)
+                self._json({"error": "internal error"}, 500)
+        elif path == "/api/insights":
+            try:
+                self._json(fetch_insights())
+            except Exception as e:
+                _log_exc("/api/insights", e)
+                self._json({"error": "internal error"}, 500)
+        elif path == "/api/dns-analytics":
+            try:
+                self._json(fetch_dns_analytics())
+            except Exception as e:
+                _log_exc("/api/dns-analytics", e)
+                self._json({"error": "internal error"}, 500)
+        elif path == "/api/host-metrics":
+            try:
+                self._json(fetch_host_metrics())
+            except Exception as e:
+                _log_exc("/api/host-metrics", e)
+                self._json({"error": "internal error"}, 500)
+        elif path == "/api/threat-lookup":
+            q = ""
+            if "?" in self.path:
+                qs = self.path.split("?", 1)[1]
+                for part in qs.split("&"):
+                    if part.startswith("q="):
+                        from urllib.parse import unquote_plus
+                        q = unquote_plus(part[2:])
+            try:
+                self._json(threat_lookup(q) if q else {"entities": [], "query": ""})
+            except Exception as e:
+                _log_exc("/api/threat-lookup", e)
+                self._json({"error": "internal error"}, 500)
+        elif path == "/api/cache-bust":
+            cache_invalidate()
+            self._json({"ok": True, "message": "Cache cleared"})
+        elif path == "/api/accounts":
+            try:
+                self._json(list_accounts())
+            except Exception as e:
+                _log_exc("/api/accounts", e)
+                self._json({"accounts": [], "active": ""}, 500)
+        elif path.lstrip("/") in _STATIC_FILES:
+            self._file(path.lstrip("/"))  # _file validates realpath before serving
+        else:
+            self.send_error(404)
+
+    MAX_BODY = 64 * 1024  # 64 KB
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        if length > self.MAX_BODY:
+            self.send_error(413, "Request Too Large")
+            return
+        body = json.loads(self.rfile.read(length) or b"{}") if length else {}
+        if self.path != "/api/switch-account":
+            _maybe_refresh_jwt()
+        if self.path == "/api/query":
+            # Read-only + LLM; not state-changing. Cross-origin reads are already
+            # blocked by the same-origin CORS allowlist, so no token is required
+            # (keeps the AI query box working out of the box).
+            try:
+                result = handle_query(body.get("question", ""))
+                self._json(result)
+            except Exception as e:
+                _log_exc("/api/query", e)
+                self._json({"answer": "Error: internal error", "suggestions": []}, 500)
+        elif self.path == "/api/switch-account":
+            # Portal-style sandbox switch: target must be an account the key's
+            # user already belongs to; no credentials in the request.
+            try:
+                account_id = str(body.get("id", "")).strip()
+                res = switch_account(account_id)
+                self._json(res, 200 if res.get("ok") else 400)
+            except Exception as e:
+                _log_exc("/api/switch-account", e)
+                self._json({"ok": False, "error": "internal error"}, 500)
+        elif self.path == "/api/block-domain":
+            # State-changing write to Infoblox config — require the shared secret.
+            if not self._authed():
+                self._json({"ok": False, "error": "unauthorized"}, 401)
+                return
+            try:
+                domain = body.get("domain", "").strip()
+                if not domain:
+                    self._json({"ok": False, "error": "domain required"}, 400)
+                else:
+                    self._json(block_domain(domain))
+            except Exception as e:
+                _log_exc("/api/block-domain", e)
+                self._json({"ok": False, "error": "internal error"}, 500)
+        elif self.path == "/api/unblock-domain":
+            # Rollback of a block — also a state-changing write; require the secret.
+            if not self._authed():
+                self._json({"ok": False, "error": "unauthorized"}, 401)
+                return
+            try:
+                domain = body.get("domain", "").strip()
+                if not domain:
+                    self._json({"ok": False, "error": "domain required"}, 400)
+                else:
+                    self._json(unblock_domain(domain))
+            except Exception as e:
+                _log_exc("/api/unblock-domain", e)
+                self._json({"ok": False, "error": "internal error"}, 500)
+        else:
+            self.send_error(404)
+
+    def _send_cors_origin(self):
+        # Reflect only an allowlisted same-host origin; never wildcard.
+        origin = self.headers.get("Origin", "")
+        allowed = {
+            f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}",
+        }
+        if origin in allowed:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+
+    def _cors(self):
+        self.send_response(200)
+        self._send_cors_origin()
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Auth-Token")
+
+    def _json(self, data, status=200):
+        body = json.dumps(data).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self._send_cors_origin()
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _file(self, name):
+        fpath = os.path.join(DIR, name)
+        # Reject symlinks and paths that escape DIR (path traversal guard)
+        if os.path.islink(fpath):
+            self.send_error(403)
+            return
+        real_dir = os.path.realpath(DIR)
+        real_path = os.path.realpath(fpath)
+        if not real_path.startswith(real_dir + os.sep) and real_path != real_dir:
+            self.send_error(403)
+            return
+        if not os.path.isfile(fpath):  # 404 cleanly for missing files and directories
+            self.send_error(404)
+            return
+        ext  = os.path.splitext(name)[1]
+        mime = MIME.get(ext, "application/octet-stream")
+        try:
+            with open(fpath, "rb") as f:
+                body = f.read()
+        except OSError as e:
+            _log_exc(f"_file({name})", e)
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt, *args):
+        print(f"  {self.address_string()} {fmt % args}")
+
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+# ── entry point ───────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    if HOST not in ("localhost", "127.0.0.1", "::1"):
+        print(f"WARNING: HOST={HOST} is not a loopback address — the dashboard "
+              "(and the privileged INFOBLOX_API_KEY proxy) is exposed on the network. "
+              "Prefer binding to loopback and publishing via -p 127.0.0.1:PORT:PORT.",
+              file=sys.stderr)
+    if not DASHBOARD_TOKEN:
+        print("NOTE: DASHBOARD_TOKEN not set — the write endpoint POST /api/block-domain "
+              "is disabled (returns 401). The read/LLM query box works normally.",
+              file=sys.stderr)
+    server = ThreadedHTTPServer((HOST, PORT), Handler)
+    print(f"Infoblox NOC Dashboard → http://{HOST}:{PORT}")
+    print(f"MCP: {MCP_URL}")
+    print("Ctrl+C to stop\n")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopped.")
