@@ -599,7 +599,7 @@ class FrontendStructureTests(unittest.TestCase):
     def test_dns_zone_drill_panel(self):
         self.assertContains("drillZone&&", "DNS zone drill-down panel missing")
 
-    # ── useSortable wired ─────────────────────────────────────────────────────
+    # ── sortable columns wired (now via DataTable + useColumns) ───────────────
 
     def test_usesortable_app_level_ipam(self):
         self.assertContains("function IPAMTable", "IPAMTable component missing")
@@ -608,15 +608,17 @@ class FrontendStructureTests(unittest.TestCase):
         self.assertContains("function HostsTable", "HostsTable component missing")
 
     def test_usesortable_in_audit_table(self):
-        self.assertContains("useSortable(logs,", "useSortable not used in AuditTable")
+        # AuditTable is sortable via the shared DataTable column system
+        self.assertContains("useColumns('audit'", "AuditTable not wired to useColumns")
+        self.assertContains("initialSort={{key:'ts'", "AuditTable lost its default sort")
 
     def test_usesortable_in_feeds_table(self):
-        self.assertContains("useSortable(feeds,", "useSortable not used in FeedsTable")
+        self.assertContains("useColumns('feeds'", "FeedsTable not wired to useColumns")
 
     def test_usesortable_in_ttl_table(self):
-        self.assertContains("useSortable(bad,", "useSortable not used in TTLTable")
+        self.assertContains("useColumns('ttl'", "TTLTable not wired to useColumns")
 
-    # ── ShowMoreTable wired ───────────────────────────────────────────────────
+    # ── ShowMoreTable wired (DataTable wraps ShowMoreTable) ───────────────────
 
     def test_show_more_table_ipam_rows(self):
         self.assertContains("IPAMTable subnets=", "IPAMTable not used in IPAM section")
@@ -625,10 +627,38 @@ class FrontendStructureTests(unittest.TestCase):
         self.assertContains("HostsTable hosts=", "HostsTable not used in Hosts section")
 
     def test_show_more_table_in_audit_table(self):
-        self.assertContains("useSortable(logs,", "AuditTable still using manual slice instead of ShowMoreTable")
+        # AuditTable renders rows through DataTable -> ShowMoreTable, not a manual slice
+        self.assertContains("function DataTable", "DataTable renderer missing")
+        self.assertContains("<ShowMoreTable rows={sorted}", "DataTable not routing through ShowMoreTable")
 
     def test_show_more_table_tablehead_prop(self):
         self.assertContains("tableHead={", "ShowMoreTable tableHead prop not used")
+
+    # ── theme (light/dark) ────────────────────────────────────────────────────
+
+    def test_theme_prepaint_script(self):
+        self.assertContains("apply saved theme before first paint", "Pre-paint theme script missing")
+        self.assertContains("prefers-color-scheme: light", "System theme detection missing")
+
+    def test_theme_light_tokens_defined(self):
+        self.assertContains(':root[data-theme="light"]', "Light theme token block missing")
+
+    def test_theme_state_persisted(self):
+        self.assertContains("LS.set('noc.theme'", "Theme choice not persisted")
+
+    def test_theme_toggle_button(self):
+        self.assertContains("theme-btn", "Theme toggle button missing")
+
+    # ── column autonomy (show/hide + reorder + expand, persisted) ─────────────
+
+    def test_column_controls_hook(self):
+        self.assertContains("function useColumns", "useColumns hook missing")
+        self.assertContains("'noc.cols.'+widgetId", "Column config not persisted per widget")
+
+    def test_column_menu_component(self):
+        self.assertContains("function ColumnMenu", "ColumnMenu component missing")
+        self.assertContains("toggleExpand", "Column expand control missing")
+        self.assertContains("ctl.move(c.key", "Column reorder control missing")
 
     # ── Overview bento layout ─────────────────────────────────────────────────
 
