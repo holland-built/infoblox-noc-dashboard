@@ -5,13 +5,11 @@
 Please report security issues **privately** — do not open a public issue for a
 vulnerability.
 
-- Preferred: open a private advisory via GitHub **Security → Report a vulnerability**
-  (GitHub private vulnerability reporting).
-- Or email the maintainer: **barney34@gmail.com**.
+- Use GitHub **Security → Report a vulnerability** (private vulnerability reporting)
+  on this repository.
 
-Please include steps to reproduce, affected version/commit, and impact. We aim to
-acknowledge reports within a few business days. This is a best-effort, single-maintainer
-project.
+Please include steps to reproduce, affected version/commit, and impact. Reports are
+handled on a best-effort basis.
 
 ## Scope
 
