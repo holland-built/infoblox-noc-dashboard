@@ -13,8 +13,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 
 BASE = os.environ.get("NOC_BASE", "http://localhost:8080")
-DIR  = os.path.dirname(os.path.abspath(__file__))
-HTML = os.path.join(DIR, "index.html")
+DIR    = os.path.dirname(os.path.abspath(__file__))
+HTML   = os.path.join(DIR, "index.html")
+SERVER = os.path.join(DIR, "server.py")
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -783,22 +784,22 @@ class FrontendStructureTests(unittest.TestCase):
         self.assertContains("Server unavailable", "No server-unavailable hint in mock fallback")
 
     def test_static_files_set_at_module_level(self):
-        with open("/Users/sholland/AI/Infoblox MCP/server.py", encoding="utf-8") as f:
+        with open(SERVER, encoding="utf-8") as f:
             srv = f.read()
         self.assertIn("_STATIC_FILES", srv, "Static file set not cached at module level")
 
     def test_table_name_validation(self):
-        with open("/Users/sholland/AI/Infoblox MCP/server.py", encoding="utf-8") as f:
+        with open(SERVER, encoding="utf-8") as f:
             srv = f.read()
         self.assertIn("_TABLE_RE", srv, "Table name not validated before SQL query")
 
     def test_env_file_uses_context_manager(self):
-        with open("/Users/sholland/AI/Infoblox MCP/server.py", encoding="utf-8") as f:
+        with open(SERVER, encoding="utf-8") as f:
             srv = f.read()
         self.assertIn("with open(_env_file)", srv, ".env not opened with context manager")
 
     def test_cache_key_uses_str(self):
-        with open("/Users/sholland/AI/Infoblox MCP/server.py", encoding="utf-8") as f:
+        with open(SERVER, encoding="utf-8") as f:
             srv = f.read()
         self.assertIn("str(sorted(", srv, "Cache key missing str() conversion")
 
