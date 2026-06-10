@@ -356,6 +356,33 @@ class FrontendStructureTests(unittest.TestCase):
         self.assertContains("/api/host-metrics", "host-metrics fetch missing")
         self.assertContains("HostMetrics.avg_value", "host-metrics fields not read")
 
+    # ── Wave D features ───────────────────────────────────────────────────────
+
+    def test_command_palette(self):
+        self.assertContains("function CommandPalette")
+        self.assertContains("cmdk-overlay", "command palette styles missing")
+        self.assertContains("e.key==='k'||e.key==='K'", "Cmd/Ctrl-K binding missing")
+
+    def test_saved_views(self):
+        self.assertContains("function PresetMenu")
+        self.assertContains("snapshotViewLS", "view snapshot helper missing")
+        self.assertContains("LS.set('noc.views'", "saved views not persisted")
+
+    def test_alert_notifications(self):
+        self.assertContains("Notification.requestPermission", "notification permission flow missing")
+        self.assertContains("prevFiringRef", "firing-transition tracking missing")
+        self.assertContains("LS.set('noc.notify'", "notify pref not persisted")
+
+    def test_freshness_pill(self):
+        self.assertContains("function FreshnessPill")
+        self.assertContains("fresh-pill", "freshness pill styles missing")
+
+    def test_trace_timeline(self):
+        self.assertContains("trace-tl", "LLM tool-trace timeline missing")
+
+    def test_dns_client_filter(self):
+        self.assertContains("Filter by device or IP", "DNS client filter input missing")
+
     def test_threat_lookup_panel(self):
         self.assertContains("function ThreatLookupPanel")
 
