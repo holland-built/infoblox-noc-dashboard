@@ -29,13 +29,51 @@ MCP is JSON-RPC/SSE, not REST). The bridge is the server-side hop that holds you
 
 ---
 
-## Quick start (Docker)
+## Install from the prebuilt image (recommended)
 
-Prereq: Docker installed and running.
+No source checkout, no build — just Docker. Every push to `master` and every
+`vX.Y.Z` tag publishes an image to GitHub Container Registry (GHCR) via
+[CI](.github/workflows/docker-publish.yml).
 
 ```bash
-git clone <your-repo-url> infoblox-noc && cd infoblox-noc
+docker run -d --name infoblox-noc -p 8080:8080 \
+  -e INFOBLOX_API_KEY="Token <your-key>" \
+  --restart unless-stopped \
+  ghcr.io/barney34/infoblox-noc-dashboard:latest
+# → http://localhost:8080
+```
+
+Add `-e GROQ_API_KEY=...` to enable the AI query box. Pin a release with a tag
+(`:v1.0.0` or `:1.0`) instead of `:latest`.
+
+**Update to the latest published image:**
+
+```bash
+docker pull ghcr.io/barney34/infoblox-noc-dashboard:latest
+docker rm -f infoblox-noc           # then re-run the docker run command above
+```
+
+> **One-time, so SEs can pull without a login:** the GHCR package defaults to
+> private. Make it public at
+> `github.com/users/barney34/packages/container/infoblox-noc-dashboard/settings`
+> → *Change visibility* → **Public**. The source repo can stay private; package
+> visibility is independent. (Otherwise each user must
+> `docker login ghcr.io` with a token that has `read:packages`.)
+
+The convenience script [`run-image.sh`](run-image.sh) wraps the pull + run +
+key prompt and re-pulls `:latest` on every run (handy for updating).
+
+---
+
+## Quick start (Docker, from source)
+
+Prereq: Docker installed and running. Use this if you're developing or want to
+build locally instead of pulling the published image.
+
+```bash
+git clone https://github.com/barney34/infoblox-noc-dashboard infoblox-noc && cd infoblox-noc
 ./run.sh
+# update later:  git pull && ./run.sh
 ```
 
 `run.sh` will:
